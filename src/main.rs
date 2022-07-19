@@ -1,8 +1,18 @@
 use std::env;
+use std::fs;
 use std::path;
 use nix::unistd;
 
-const LOGGER_CREDENTIALS_FILE: &str = "/etc/Rust_Logger_Credentials";
+const LOGGER_CREDENTIALS_FILE: &str = "/etc/.Rust_Logger_Credentials";
+
+fn open_file(file_name: &str) -> fs::File {
+
+
+    if !path::Path::new(file_name).exists() {
+        return fs::File::create(file_name).expect("Error opening file");
+    }
+
+}
 
 fn main() {
 
@@ -18,22 +28,23 @@ fn main() {
         return
     }
 
+    // checking if credentials file exists
     if !path::Path::new(LOGGER_CREDENTIALS_FILE).exists() {
         println!("Error: credentials not set up. Cannot log data before setup.");
         return
     }
 
+    // setting root user id to modify file in etc/
     let og_id: unistd::Uid = unistd::Uid::current();
 
     if let Err(e) = unistd::setuid(unistd::Uid::from_raw(0)) {
         println!("Error setting user id: {e:?}");
     }
-    // match unistd::setuid(id) {
-    //     Ok(_) => (),
-    //     Err(e) => println!("Error setting user id: {e:?}"),
-    // }
-    println!("User id:{}", unistd::Uid::effective());
-    println!("Original id:{}", og_id);
+
+    // println!("User id:{}", unistd::Uid::effective());
+    // println!("Original id:{}", og_id);
+
+    open_file(LOGGER_CREDENTIALS_FILE);
 
     println!("Passed error checks...");
 
