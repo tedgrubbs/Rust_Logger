@@ -1,9 +1,6 @@
 use std::{env};
 
-mod user;
-use user::*;
-
-
+use log::user::*;
 
 fn main() {
 
