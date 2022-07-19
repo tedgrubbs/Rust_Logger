@@ -1,51 +1,96 @@
 use std::env;
 use std::fs;
-use std::path;
+use std::io;
+use std::io::prelude::*;
 use nix::unistd;
+use std::os::unix::fs::PermissionsExt;
+use rpassword;
 
 const LOGGER_CREDENTIALS_FILE: &str = "/etc/.Rust_Logger_Credentials";
 
-fn open_file(file_name: &str) -> fs::File {
+const CREDS_OPTIONS: [&str; 4] = ["Username:", "Password:", "Server:", "Key:"];
 
+struct User {
+    user_id: u32
+}
 
-    if !path::Path::new(file_name).exists() {
-        return fs::File::create(file_name).expect("Error opening file");
+impl User {
+
+    fn user() -> User {
+        User {user_id: unistd::Uid::current().as_raw()}
+    }
+
+    fn get_root(&self) {
+        if let Err(e) = unistd::setuid(unistd::Uid::from_raw(0)) {
+            println!("Error setting user id: {e:?}");
+        }
+    }
+
+    fn return_root(&self) {
+        if let Err(e) = unistd::setuid(unistd::Uid::from_raw(self.user_id)) {
+            println!("Error setting user id: {e:?}");
+        }
+    }
+
+    fn generate_creds_file(&self) {
+
+        self.get_root();
+
+        // create new file, overwriting the old. Set permissions
+        let mut file = fs::File::create(LOGGER_CREDENTIALS_FILE).expect("error creating new credential file");
+        file.set_permissions(fs::Permissions::from_mode(0o600)).expect("Permission set failure");
+
+        let mut user_input = String::new();
+
+        for (i, &s) in CREDS_OPTIONS.iter().enumerate() {
+
+            println!("{}", s);
+            // if getting password or private key, obfuscate input
+            if i == 1 || i == 3 {
+                let password = rpassword::read_password().unwrap();
+                user_input.insert_str(0, &password);
+                user_input.insert_str(user_input.len(), "\n");
+            } else {
+                io::stdin().read_line(&mut user_input).expect("Failed to read line");
+            }
+
+            user_input.insert_str(0, s);
+            file.write(user_input.as_bytes()).expect("File write failed");
+            user_input.clear();
+
+        }
+
+        self.return_root();
+
     }
 
 }
 
+
+
 fn main() {
+
+    let user = User::user();
 
     let args: Vec<String> = env::args().collect();
 
     if args.len() == 1 || args[1] == "-h" {
         println!("Usage:");
         println!("log <command> // logs command and logs to server");
-        println!("log -user <username> // stores remote server username");
-        println!("log -password <password> // stores remote server password");
-        println!("log -serverip <serverip> // stores remote server IP address");
-        println!("log -privatekey <privatekey> // stores remote server private key");
+        println!("log -init // Creates credential file on disk");
         return
     }
 
     // checking if credentials file exists
-    if !path::Path::new(LOGGER_CREDENTIALS_FILE).exists() {
-        println!("Error: credentials not set up. Cannot log data before setup.");
-        return
+    // if !path::Path::new(LOGGER_CREDENTIALS_FILE).exists() {
+    //     println!("Error: credentials not set up. Cannot log data before setup.");
+    //     return
+    // }
+
+
+
+    if args[1] == "-init" {
+        user.generate_creds_file();
     }
-
-    // setting root user id to modify file in etc/
-    let og_id: unistd::Uid = unistd::Uid::current();
-
-    if let Err(e) = unistd::setuid(unistd::Uid::from_raw(0)) {
-        println!("Error setting user id: {e:?}");
-    }
-
-    // println!("User id:{}", unistd::Uid::effective());
-    // println!("Original id:{}", og_id);
-
-    open_file(LOGGER_CREDENTIALS_FILE);
-
-    println!("Passed error checks...");
 
 }

@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 nix = "0.24.2"
+rpassword = "7.0"
