@@ -4,7 +4,7 @@ use log::user::*;
 
 fn main() {
 
-  let user = User::user();
+  let mut user = User::user();
  
   let args: Vec<String> = env::args().collect();
 

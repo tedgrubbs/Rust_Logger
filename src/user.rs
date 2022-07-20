@@ -1,4 +1,4 @@
-use std::{fs, io, path};
+use std::{fs, io, path, collections::HashMap};
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 
@@ -10,7 +10,8 @@ const LOGGER_CREDENTIALS_FILE: &str = "/etc/.Rust_Logger_Credentials";
 const CREDS_OPTIONS: [&str; 4] = ["Username:", "Password:", "Server:", "Key:"];
 
 pub struct User {
-  user_id: u32
+  user_id: u32,
+  db_table: HashMap<String, String>,
 }
 
 impl User {
@@ -19,7 +20,11 @@ impl User {
   pub fn user() -> User {
     let raw_uid = unistd::Uid::current().as_raw();
     unistd::seteuid(unistd::Uid::from_raw(raw_uid)).expect("Error setting initial user id");
-    User {user_id: raw_uid}
+    User {
+      user_id: raw_uid,
+      db_table: HashMap::new()
+    }
+    
   }
 
   fn get_root(&self) {
@@ -68,7 +73,7 @@ impl User {
 
   }
 
-  pub fn read_creds_file(&self) {
+  pub fn read_creds_file(&mut self) {
 
     // checking if credentials file exists
     if !path::Path::new(LOGGER_CREDENTIALS_FILE).exists() {
@@ -80,9 +85,19 @@ impl User {
     let creds = fs::read_to_string(LOGGER_CREDENTIALS_FILE).expect("error reading credential file");
     self.return_root();
     
-    println!("{}", creds);
+    // parsing credential string to insert values into db_table
+    for (_, &cred_parameter) in CREDS_OPTIONS.iter().enumerate() {
 
+      let index = match creds.find(cred_parameter) {
+        Some(v) => v,
+        None => panic!("Missing parameter in credentials file")
+      };
 
+      self.db_table.insert(
+        cred_parameter.to_string(),
+        creds.split_at(index+cred_parameter.len()).1.split_once('\n').unwrap().0.to_string()
+      ) ; 
+    }
   }
 
 
