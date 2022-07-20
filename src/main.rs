@@ -1,25 +1,46 @@
-use std::{env};
-
+use clap::{Parser};
 use log::user::*;
+use log::command::*;
+
+#[derive(Parser)]
+struct Args {
+  /// Run this first or if you want to change database server parameters
+  #[clap(short, long, action)]
+  init: bool,
+
+  /// Enter a string here as the command you wish to run and log
+  #[clap(short, long, value_parser)]
+  command: Option<String>,
+}
+
+
 
 fn main() {
 
   let mut user = User::user();
  
-  let args: Vec<String> = env::args().collect();
+  let args = Args::parse();
 
-  if args.len() == 1 || args[1] == "-h" {
-    println!("Usage:");
-    println!("log <command> // logs command and logs to server");
-    println!("log -init // Creates credential file on disk");
-    return
-  }
 
-  if args[1] == "-init" {
+  if args.init {
     user.generate_creds_file();
   }
 
   user.read_creds_file();
+  
+  let mut cmd = match args.command {
+    Some(x) => {
+      Command::command(x)
+    },
+    None => {
+      println!("Please enter a command");
+      return
+    },
+  };
+
+  cmd.execute();
+  
 
 
 }
+
