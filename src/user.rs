@@ -1,4 +1,4 @@
-use std::{fs, io};
+use std::{fs, io, path};
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 
@@ -15,19 +15,24 @@ pub struct User {
 
 impl User {
 
+  // When starting as root suid, effective id is root. Want to turn this off until needed
   pub fn user() -> User {
-    User {user_id: unistd::Uid::current().as_raw()}
+    let raw_uid = unistd::Uid::current().as_raw();
+    unistd::seteuid(unistd::Uid::from_raw(raw_uid)).expect("Error setting initial user id");
+    User {user_id: raw_uid}
   }
 
   fn get_root(&self) {
-    if let Err(e) = unistd::setuid(unistd::Uid::from_raw(0)) {
-      println!("Error setting user id: {e:?}");
+    if let Err(e) = unistd::seteuid(unistd::Uid::from_raw(0)) {
+      println!("Error setting root id: {e:?}");
+      panic!();
     }
   }
 
   fn return_root(&self) {
-    if let Err(e) = unistd::setuid(unistd::Uid::from_raw(self.user_id)) {
-      println!("Error setting user id: {e:?}");
+    if let Err(e) = unistd::seteuid(unistd::Uid::from_raw(self.user_id)) {
+      println!("Error setting original user id: {e:?}");
+      panic!();
     }
   }
 
@@ -62,5 +67,23 @@ impl User {
     self.return_root();
 
   }
+
+  pub fn read_creds_file(&self) {
+
+    // checking if credentials file exists
+    if !path::Path::new(LOGGER_CREDENTIALS_FILE).exists() {
+      println!("Error: credentials not set up. Cannot log data before setup.");
+      return
+    }
+
+    self.get_root();
+    let creds = fs::read_to_string(LOGGER_CREDENTIALS_FILE).expect("error reading credential file");
+    self.return_root();
+    
+    println!("{}", creds);
+
+
+  }
+
 
 }
