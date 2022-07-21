@@ -86,7 +86,7 @@ impl User {
     self.return_root();
     
     // parsing credential string to insert values into db_table
-    for (_, &cred_parameter) in CREDS_OPTIONS.iter().enumerate() {
+    for &cred_parameter in CREDS_OPTIONS.iter() {
 
       let index = match creds.find(cred_parameter) {
         Some(v) => v,
@@ -96,8 +96,14 @@ impl User {
       self.db_table.insert(
         cred_parameter.to_string(),
         creds.split_at(index+cred_parameter.len()).1.split_once('\n').unwrap().0.to_string()
-      ) ; 
+      ); 
     }
+
+
+    // for (k,v) in &self.db_table {
+    //   println!("{}{}", k,v);
+    // }
+    
   }
 
 

@@ -8,6 +8,8 @@ struct Args {
   #[clap(short, long, action)]
   init: bool,
 
+//clap(short,long,action, init:bool)
+
   /// Enter a string here as the command you wish to run and log
   #[clap(short, long, value_parser)]
   command: Option<String>,
@@ -16,6 +18,7 @@ struct Args {
 
 
 fn main() {
+  println!();
 
   let mut user = User::user();
  
@@ -28,7 +31,7 @@ fn main() {
 
   user.read_creds_file();
   
-  let mut cmd = match args.command {
+  let cmd = match args.command {
     Some(x) => {
       Command::command(x)
     },
@@ -38,7 +41,10 @@ fn main() {
     },
   };
 
-  cmd.execute();
+  match cmd.execute() {
+    Ok(()) => (),
+    Err(e) => panic!("Error executing command {}", e)
+  };
   
 
 
