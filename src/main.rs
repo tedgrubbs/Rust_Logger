@@ -41,8 +41,8 @@ fn main() {
     },
   };
 
-  match cmd.execute() {
-    Ok(()) => (),
+  let output_info = match cmd.execute() {
+    Ok(v) => v,
     Err(e) => panic!("Error executing command {}", e)
   };
   

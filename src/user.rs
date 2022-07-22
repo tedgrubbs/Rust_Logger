@@ -77,8 +77,7 @@ impl User {
 
     // checking if credentials file exists
     if !path::Path::new(LOGGER_CREDENTIALS_FILE).exists() {
-      println!("Error: credentials not set up. Cannot log data before setup.");
-      return
+      panic!("Error: credentials not set up. Cannot log data before setup.")
     }
 
     self.get_root();

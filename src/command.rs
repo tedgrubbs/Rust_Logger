@@ -4,10 +4,13 @@ use sha2::{Sha256, Digest};
 use hex;
 
 pub struct Command {
-
   cmd_string: String,
   input_file_path: path::PathBuf,
+}
 
+pub struct OutputInfo {
+  pub filename: String,
+  pub hash: String
 }
 
 impl Command {
@@ -42,7 +45,7 @@ impl Command {
 
   }
 
-  pub fn execute(&self) -> io::Result<()> {
+  pub fn execute(&self) -> io::Result<OutputInfo> {
 
     match env::set_current_dir(self.input_file_path.parent().unwrap()) {
       Ok(()) => (),
@@ -93,16 +96,17 @@ impl Command {
 
     println!("\nExecuting {:?}\n", cmd);
 
+    // A system process can fail without creating a rust error. So you need to check the output status
     match cmd.output() {
-        Ok(output) => {
-            io::stdout().write_all(&output.stdout).unwrap();
-            if output.status.success() {
-              println!("Compressed successfully");
-            } else {
-                println!("Compression failed");
-            }
-        },
-        Err(err) => panic!("Well that didn't work {:?}", err)
+      Ok(output) => {
+        io::stdout().write_all(&output.stdout).unwrap();
+        if output.status.success() {
+          println!("Compressed successfully");
+        } else {
+          panic!("Compression failed");
+        }
+      },
+      Err(err) => panic!("Well that didn't work {:?}", err)
     }
 
     println!("\nCalculating file hash...");
@@ -111,8 +115,13 @@ impl Command {
     io::copy(&mut file, &mut hasher)?;
     let hash = hasher.finalize();
     println!("File hash: {}", hex::encode(hash));
+
+    let command_outputs = OutputInfo {
+      filename: output_filename,
+      hash: hex::encode(hash)
+    };
     
-    Ok(())
+    Ok(command_outputs)
   }
 
 }
