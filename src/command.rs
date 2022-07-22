@@ -1,11 +1,13 @@
-use std::{env, io, path, process};
+use std::{env, io, path, process, fs};
 use std::io::{Write};
+use sha2::{Sha256, Digest};
+use hex;
 
 pub struct Command {
-  
+
   cmd_string: String,
   input_file_path: path::PathBuf,
-  
+
 }
 
 impl Command {
@@ -36,8 +38,8 @@ impl Command {
       cmd_string,
       input_file_path
     }
-    
-    
+
+
   }
 
   pub fn execute(&self) -> io::Result<()> {
@@ -46,12 +48,12 @@ impl Command {
       Ok(()) => (),
       Err(error) => match error.kind() {
         io::ErrorKind::NotFound => {
-          panic!("Directory not found. Try switching your current directory or providing the full absolute path."); 
+          panic!("Directory not found. Try switching your current directory or providing the full absolute path.");
         },
         other_error => panic!("Bruh... {:?}", other_error)
       }
     };
-    
+
     println!("Moved to {}", env::current_dir()?.display());
 
     // Executing command
@@ -59,7 +61,7 @@ impl Command {
     cmd.arg("-c");
     cmd.arg(&self.cmd_string);
 
-    println!("Executing {:?}\n", cmd);
+    println!("\nExecuting {:?}\n", cmd);
 
     println!("Start of command output:\n");
 
@@ -73,6 +75,43 @@ impl Command {
       Err(err) => panic!("Problem running command {:?}", err)
     };
 
+    // Compressing output directory
+    // is this stupid? I think it's the easiest way unless i can find something decent in Rust.
+    let mut compress_data_cmd_str = String::new();
+    let mut output_filename = String::new();
+    output_filename.push_str(self.input_file_path.file_name().unwrap().to_str().unwrap());
+    output_filename.push_str(".tar.gz");
+
+    compress_data_cmd_str.insert_str(0, "tar -czf ");
+    compress_data_cmd_str.push_str(&output_filename);
+    compress_data_cmd_str.push_str(" ");
+    compress_data_cmd_str.push_str("*");
+
+    let mut cmd = process::Command::new("sh");
+    cmd.arg("-c");
+    cmd.arg(&compress_data_cmd_str);
+
+    println!("\nExecuting {:?}\n", cmd);
+
+    match cmd.output() {
+        Ok(output) => {
+            io::stdout().write_all(&output.stdout).unwrap();
+            if output.status.success() {
+              println!("Compressed successfully");
+            } else {
+                println!("Compression failed");
+            }
+        },
+        Err(err) => panic!("Well that didn't work {:?}", err)
+    }
+
+    println!("\nCalculating file hash...");
+    let mut file = fs::File::open(&output_filename)?;
+    let mut hasher = Sha256::new();
+    io::copy(&mut file, &mut hasher)?;
+    let hash = hasher.finalize();
+    println!("File hash: {}", hex::encode(hash));
+    
     Ok(())
   }
 
