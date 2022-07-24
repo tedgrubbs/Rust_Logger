@@ -14,7 +14,8 @@ pub struct Command {
 
 pub struct OutputInfo {
   pub filename: String,
-  pub hash: String
+  pub hash: String,
+  pub data: Vec<u8>,
 }
 
 impl Command {
@@ -31,8 +32,8 @@ impl Command {
 
     // get full input file path
     let mut input_file_path = String::new();
-    for i in 2..split_string.len() {
-      if split_string[i-2] == "lmp" && split_string[i-1] == "<" {
+    for i in 1..split_string.len() {
+      if split_string[i-1] == "-in" {
         input_file_path.insert_str(0, split_string[i]);
       }
     }
@@ -111,7 +112,8 @@ impl Command {
 
     let command_outputs = OutputInfo {
       filename: output_filename,
-      hash: hex::encode(hash)
+      hash: hex::encode(hash),
+      data: compressed_data,
     };
 
     Ok(command_outputs)

@@ -4,7 +4,6 @@ use std::os::unix::fs::PermissionsExt;
 
 use nix::unistd;
 use rpassword;
-
 use crate::command;
 
 const LOGGER_CREDENTIALS_FILE: &str = "/etc/.Rust_Logger_Credentials";
@@ -26,7 +25,7 @@ impl User {
       user_id: raw_uid,
       db_table: HashMap::new()
     }
-    
+
   }
 
   fn get_root(&self) {
@@ -85,7 +84,7 @@ impl User {
     self.get_root();
     let creds = fs::read_to_string(LOGGER_CREDENTIALS_FILE).expect("error reading credential file");
     self.return_root();
-    
+
     // parsing credential string to insert values into db_table
     for &cred_parameter in CREDS_OPTIONS.iter() {
 
@@ -97,19 +96,19 @@ impl User {
       self.db_table.insert(
         cred_parameter.to_string(),
         creds.split_at(index+cred_parameter.len()).1.split_once('\n').unwrap().0.to_string()
-      ); 
+      );
     }
 
 
     // for (k,v) in &self.db_table {
     //   println!("{}{}", k,v);
     // }
-    
+
   }
 
   pub fn send_data(&self, output_info: command::OutputInfo) -> io::Result<()> {
 
-    
+    println!("{}", output_info.filename);
 
     Ok(())
   }
