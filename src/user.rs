@@ -5,13 +5,15 @@ use std::os::unix::fs::PermissionsExt;
 use nix::unistd;
 use rpassword;
 
+use crate::command;
+
 const LOGGER_CREDENTIALS_FILE: &str = "/etc/.Rust_Logger_Credentials";
 
 const CREDS_OPTIONS: [&str; 4] = ["Username:", "Password:", "Server:", "Key:"];
 
 pub struct User {
   user_id: u32,
-  db_table: HashMap<String, String>,
+  pub db_table: HashMap<String, String>,
 }
 
 impl User {
@@ -105,5 +107,11 @@ impl User {
     
   }
 
+  pub fn send_data(&self, output_info: command::OutputInfo) -> io::Result<()> {
+
+    
+
+    Ok(())
+  }
 
 }

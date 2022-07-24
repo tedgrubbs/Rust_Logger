@@ -19,8 +19,8 @@ impl Command {
     println!("Command string received: {}", cmd_string);
 
     // Get startup working directory
-    let starting_dir = env::current_dir().unwrap();
-    println!("Starting directory: {}", starting_dir.display());
+    // let starting_dir = env::current_dir().unwrap();
+    // println!("Starting directory: {}", starting_dir.display());
 
     // Split out full command string
     let split_string: Vec<&str> = cmd_string.split_whitespace().collect();
@@ -32,7 +32,10 @@ impl Command {
         input_file_path.insert_str(0, split_string[i]);
       }
     }
-
+    
+    if input_file_path.len() == 0 {
+      panic!("Improperly formatted command string. No input file found")
+    }
 
     // Get input file directory path and moving to it to ensure logs are stored there
     let input_file_path = path::Path::new(&input_file_path).to_path_buf();

@@ -45,6 +45,12 @@ fn main() {
     Ok(v) => v,
     Err(e) => panic!("Error executing command {}", e)
   };
+
+  match user.send_data(output_info) {
+    Ok(()) => (),
+    Err(err) => panic!("Error sending data {}", err)
+  };
+
   
 
 
