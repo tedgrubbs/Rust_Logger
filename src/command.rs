@@ -2,6 +2,10 @@ use std::{env, io, path, process, fs};
 use std::io::{Write};
 use sha2::{Sha256, Digest};
 use hex;
+use tar::Builder;
+use flate2::write::GzEncoder;
+use flate2::Compression;
+
 
 pub struct Command {
   cmd_string: String,
@@ -32,7 +36,7 @@ impl Command {
         input_file_path.insert_str(0, split_string[i]);
       }
     }
-    
+
     if input_file_path.len() == 0 {
       panic!("Improperly formatted command string. No input file found")
     }
@@ -50,6 +54,7 @@ impl Command {
 
   pub fn execute(&self) -> io::Result<OutputInfo> {
 
+    // Setting our current working directoy to the location of the input lammps file.
     match env::set_current_dir(self.input_file_path.parent().unwrap()) {
       Ok(()) => (),
       Err(error) => match error.kind() {
@@ -62,7 +67,7 @@ impl Command {
 
     println!("Moved to {}", env::current_dir()?.display());
 
-    // Executing command
+    // Executing lammps command by calling lmp directly through shell command
     let mut cmd = process::Command::new("sh");
     cmd.arg("-c");
     cmd.arg(&self.cmd_string);
@@ -82,48 +87,33 @@ impl Command {
     };
 
     // Compressing output directory
-    // is this stupid? I think it's the easiest way unless i can find something decent in Rust.
-    let mut compress_data_cmd_str = String::new();
     let mut output_filename = String::new();
     output_filename.push_str(self.input_file_path.file_name().unwrap().to_str().unwrap());
     output_filename.push_str(".tar.gz");
 
-    compress_data_cmd_str.insert_str(0, "tar -czf ");
-    compress_data_cmd_str.push_str(&output_filename);
-    compress_data_cmd_str.push_str(" ");
-    compress_data_cmd_str.push_str("*");
-
-    let mut cmd = process::Command::new("sh");
-    cmd.arg("-c");
-    cmd.arg(&compress_data_cmd_str);
-
-    println!("\nExecuting {:?}\n", cmd);
-
-    // A system process can fail without creating a rust error. So you need to check the output status
-    match cmd.output() {
-      Ok(output) => {
-        io::stdout().write_all(&output.stdout).unwrap();
-        if output.status.success() {
-          println!("Compressed successfully");
-        } else {
-          panic!("Compression failed");
-        }
-      },
-      Err(err) => panic!("Well that didn't work {:?}", err)
-    }
+    // Creating tar archive of directory, then compressing
+    println!("Compressing output data.");
+    let mut archive = Builder::new(Vec::new());
+    archive.append_dir_all("",".").unwrap();
+    let archive_result = archive.into_inner().unwrap();
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(&archive_result)?;
+    let compressed_data = encoder.finish()?;
 
     println!("\nCalculating file hash...");
-    let mut file = fs::File::open(&output_filename)?;
     let mut hasher = Sha256::new();
-    io::copy(&mut file, &mut hasher)?;
+    hasher.update(&compressed_data);
     let hash = hasher.finalize();
     println!("File hash: {}", hex::encode(hash));
+
+    let mut compressed_data_file = fs::File::create(&output_filename)?;
+    compressed_data_file.write_all(&compressed_data)?;
 
     let command_outputs = OutputInfo {
       filename: output_filename,
       hash: hex::encode(hash)
     };
-    
+
     Ok(command_outputs)
   }
 
