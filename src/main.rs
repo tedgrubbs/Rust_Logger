@@ -2,12 +2,18 @@ use log::user::*;
 use log::command::*;
 use std::env;
 
-#[tokio::main]
-async fn main() {
+
+fn main() {
   println!();
 
   let mut user = User::user();
-  user.check_creds();
+  user.check_creds().unwrap();
+
+  let args = env::args();
+  if args.len() == 1 {
+    return;
+  }
+  println!("{:?}", args);
 
   // let output_info = match cmd.execute() {
   //   Ok(v) => v,
@@ -18,8 +24,6 @@ async fn main() {
   //   Ok(()) => (),
   //   Err(err) => panic!("Error sending data {}", err)
   // };
-
-  
 
 
 }

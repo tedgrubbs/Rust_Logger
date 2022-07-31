@@ -107,9 +107,9 @@ impl User {
     Ok(())
   }
 
-  pub fn check_creds(&mut self) -> io::Result<()> {
+  #[tokio::main]
+  pub async fn check_creds(&mut self) -> io::Result<()> {
 
-  
     if !path::Path::new(KEY_FILE).exists() {
 
       println!("No credential file found. Starting registration process. Please enter the administrator password: ");
@@ -122,7 +122,7 @@ impl User {
     let mut file = fs::File::open(KEY_FILE).expect("error opening credential file");
     file.read_to_string(&mut self.key)?;
 
-    println!("Key obtained: {}", self.key);
+    println!("Key found on local system");
     Ok(())
   }
 
@@ -142,7 +142,7 @@ impl User {
     let creds = fs::read_to_string(&self.logger_config_path).expect("error reading credential file");
     
     // parsing credential string to insert values into db_table
-    for &cred_parameter in CONN_OPTIONS.iter() {
+    for cred_parameter in CONN_OPTIONS {
 
       let index = match creds.find(cred_parameter) {
         Some(v) => v,
