@@ -20,21 +20,14 @@ pub struct OutputInfo {
 
 impl Command {
 
-  pub fn command(cmd_string: String) -> Command {
-    println!("Command string received: {}", cmd_string);
-
-    // Get startup working directory
-    // let starting_dir = env::current_dir().unwrap();
-    // println!("Starting directory: {}", starting_dir.display());
-
-    // Split out full command string
-    let split_string: Vec<&str> = cmd_string.split_whitespace().collect();
+  pub fn command(cmd_string: Vec<String>) -> Command {
+    println!("Command string received: {:?}", cmd_string);
 
     // get full input file path
     let mut input_file_path = String::new();
-    for i in 1..split_string.len() {
-      if split_string[i-1] == "-in" {
-        input_file_path.insert_str(0, split_string[i]);
+    for i in 1..cmd_string.len() {
+      if cmd_string[i-1] == "-in" {
+        input_file_path.insert_str(0, &cmd_string[i]);
       }
     }
 
@@ -45,8 +38,15 @@ impl Command {
     // Get input file directory path and moving to it to ensure logs are stored there
     let input_file_path = path::Path::new(&input_file_path).to_path_buf();
 
+    let mut real_string = String::new();
+    for s in cmd_string {
+        real_string.push_str(&s);
+        real_string.push_str(" ");
+    }
+    println!("New string: {}", &real_string);
+
     Command {
-      cmd_string,
+      cmd_string: real_string,
       input_file_path
     }
 
@@ -56,15 +56,18 @@ impl Command {
   pub fn execute(&self) -> io::Result<OutputInfo> {
 
     // Setting our current working directoy to the location of the input lammps file.
-    match env::set_current_dir(self.input_file_path.parent().unwrap()) {
-      Ok(()) => (),
-      Err(error) => match error.kind() {
-        io::ErrorKind::NotFound => {
-          panic!("Directory not found. Try switching your current directory or providing the full absolute path.");
-        },
-        other_error => panic!("Bruh... {:?}", other_error)
-      }
-    };
+    if self.input_file_path.parent().unwrap() != path::Path::new("") {
+      match env::set_current_dir(self.input_file_path.parent().unwrap()) {
+        Ok(()) => (),
+        Err(error) => match error.kind() {
+          io::ErrorKind::NotFound => {
+            panic!("Directory not found. Try switching your current directory or providing the full absolute path.");
+          },
+          other_error => panic!("Bruh... {:?}", other_error)
+        }
+      };
+    }
+
 
     println!("Moved to {}", env::current_dir()?.display());
 
@@ -72,6 +75,7 @@ impl Command {
     let mut cmd = process::Command::new("sh");
     cmd.arg("-c");
     cmd.arg(&self.cmd_string);
+    cmd.stdout(process::Stdio::inherit()); // Allows process to write to parent stdout
 
     println!("\nExecuting {:?}\n", cmd);
 
@@ -79,7 +83,6 @@ impl Command {
 
     match cmd.output() {
       Ok(output) => {
-        io::stdout().write_all(&output.stdout).unwrap();
         if output.status.success() {
           println!("\nCommand executed successfully. Control returned to log.");
         }
