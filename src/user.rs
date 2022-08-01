@@ -77,16 +77,15 @@ impl User {
   }
 
   pub async fn send_output(&self, output_info: OutputInfo) {
-    self.send_data(Endpoint::UPLOAD, output_info.data).await.unwrap();
+    self.send_data(Endpoint::UPLOAD, Some(output_info)).await.unwrap();
   }
-
-  async fn send_data(&self, endpoint: &str, body: Vec<u8>) -> std::result::Result<hyper::HeaderMap<hyper::header::HeaderValue>, hyper::Error> {
+ 
+  async fn send_data(&self, endpoint: &str, file_info: Option<OutputInfo>) -> std::result::Result<hyper::HeaderMap<hyper::header::HeaderValue>, hyper::Error> {
     let mut server: String = self.db_table.get("Server:").unwrap().to_string();
     server.insert_str(0, "https://");
     server.push_str(endpoint);
 
-    let pword: &str;
-    pword = match endpoint {
+    let pword = match endpoint {
       Endpoint::REGISTER => &self.admin_password,
       Endpoint::UPLOAD => &self.key,
       _ => ""
@@ -97,8 +96,16 @@ impl User {
     .method(Method::POST)
     .uri(server)
     .header("password", pword)
-    .header("username", self.db_table.get("Username:").unwrap().to_string())
-    .body(Body::from(body)).unwrap();
+    .header("username", self.db_table.get("Username:").unwrap().to_string());
+    
+    let req = match file_info {
+      None => req.body(Body::from("")).unwrap(),
+      Some(f) => {
+        let req = req.header("filename", f.filename);
+        let req = req.header("filehash", f.hash);
+        req.body(Body::from(f.data)).unwrap()
+      }
+    };
 
     let https = HttpsConnector::new();
     let client = Client::builder().build::<_, hyper::Body>(https);
@@ -117,7 +124,7 @@ impl User {
 
   async fn register(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
-    let headers = self.send_data(Endpoint::REGISTER, Vec::new()).await?;
+    let headers = self.send_data(Endpoint::REGISTER, None).await?;
     let new_key = headers.get("key").unwrap().as_bytes();
     println!("Registration with server successful\n");
 
