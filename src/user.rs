@@ -13,6 +13,8 @@ use hyper_tls::HttpsConnector;
 
 use async_std::task;
 
+use crate::command::OutputInfo;
+
 const KEY_FILE: &str = "/etc/.Rust_Logger_Credentials";
 
 const CONN_OPTIONS: [&str; 2] = ["Username:", "Server:"];
@@ -67,15 +69,27 @@ impl User {
     }
   }
 
-  pub async fn send_data(&self, endpoint: &str, body: Vec<u8>) -> std::result::Result<hyper::HeaderMap<hyper::header::HeaderValue>, hyper::Error> {
+  pub async fn send_output(&self, output_info: OutputInfo) {
+    self.send_data("/upload", output_info.data).await.unwrap();
+  }
+
+  async fn send_data(&self, endpoint: &str, body: Vec<u8>) -> std::result::Result<hyper::HeaderMap<hyper::header::HeaderValue>, hyper::Error> {
     let mut server: String = self.db_table.get("Server:").unwrap().to_string();
     server.insert_str(0, "https://");
     server.push_str(endpoint);
 
+    let pword: &str;
+    pword = match endpoint {
+      "/register" => &self.admin_password,
+      "/upload" => &self.key,
+      _ => ""
+    };
+    
+
     let req = Request::builder()
     .method(Method::POST)
     .uri(server)
-    .header("password", &self.admin_password)
+    .header("password", pword)
     .header("username", self.db_table.get("Username:").unwrap().to_string())
     .body(Body::from(body)).unwrap();
 
