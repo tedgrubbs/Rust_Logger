@@ -2,12 +2,12 @@ use log::user::*;
 use log::command::*;
 use std::env;
 
-
-fn main() {
+#[tokio::main]
+async fn main() {
   println!();
 
   let mut user = User::user();
-  user.check_creds().unwrap();
+  user.check_creds().await.unwrap();
 
   let mut args: Vec<String> = env::args().collect();
 

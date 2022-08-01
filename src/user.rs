@@ -44,15 +44,15 @@ impl User {
       admin_password: String::new(), // admin_password should be blank unless performing registration
       key: String::new() // key will be initialized at check_creds()
     };
-    
+
     new_user.read_config_file();
-    
+
     // quick test to see if we can get root
     new_user.get_root();
     new_user.return_root();
 
     new_user
-    
+
   }
 
   fn get_root(&self) {
@@ -103,11 +103,10 @@ impl User {
     file.write_all(new_key).unwrap();
     file.flush().unwrap();
     self.return_root();
-    
+
     Ok(())
   }
 
-  #[tokio::main]
   pub async fn check_creds(&mut self) -> io::Result<()> {
 
     if !path::Path::new(KEY_FILE).exists() {
@@ -116,7 +115,7 @@ impl User {
       self.admin_password.push_str(&rpassword::read_password().unwrap());
       task::block_on(self.register()).unwrap();
 
-    } 
+    }
 
     self.get_root();
     let mut file = fs::File::open(KEY_FILE).expect("error opening credential file");
@@ -140,7 +139,7 @@ impl User {
     }
 
     let creds = fs::read_to_string(&self.logger_config_path).expect("error reading credential file");
-    
+
     // parsing credential string to insert values into db_table
     for cred_parameter in CONN_OPTIONS {
 
@@ -152,14 +151,14 @@ impl User {
       self.db_table.insert(
         cred_parameter.to_string(),
         creds.split_at(index+cred_parameter.len()).1.split_once('\n').unwrap().0.to_string()
-      ); 
+      );
     }
 
 
     // for (k,v) in &self.db_table {
     //   println!("{}{}", k,v);
     // }
-    
+
   }
 
   pub fn send_data(&self, output_info: command::OutputInfo) -> io::Result<()> {
