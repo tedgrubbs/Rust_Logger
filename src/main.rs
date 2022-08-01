@@ -25,10 +25,10 @@ async fn main() {
   };
 
 
-  match user.send_data(output_info) {
-    Ok(()) => (),
-    Err(err) => panic!("Error sending data {}", err)
-  };
+  // match user.send_data(output_info) {
+  //   Ok(()) => (),
+  //   Err(err) => panic!("Error sending data {}", err)
+  // };
 
 
 }

@@ -13,8 +13,6 @@ use hyper_tls::HttpsConnector;
 
 use async_std::task;
 
-use crate::command;
-
 const KEY_FILE: &str = "/etc/.Rust_Logger_Credentials";
 
 const CONN_OPTIONS: [&str; 2] = ["Username:", "Server:"];
@@ -69,18 +67,17 @@ impl User {
     }
   }
 
-  async fn register(&self) -> std::result::Result<(), hyper::Error> {
-
+  pub async fn send_data(&self, endpoint: &str, body: Vec<u8>) -> std::result::Result<hyper::HeaderMap<hyper::header::HeaderValue>, hyper::Error> {
     let mut server: String = self.db_table.get("Server:").unwrap().to_string();
     server.insert_str(0, "https://");
-    server.push_str("/register");
+    server.push_str(endpoint);
 
     let req = Request::builder()
     .method(Method::POST)
     .uri(server)
     .header("password", &self.admin_password)
     .header("username", self.db_table.get("Username:").unwrap().to_string())
-    .body(Body::from("")).unwrap();
+    .body(Body::from(body)).unwrap();
 
     let https = HttpsConnector::new();
     let client = Client::builder().build::<_, hyper::Body>(https);
@@ -92,8 +89,15 @@ impl User {
       let body_bytes = hyper::body::to_bytes(resp.into_body()).await?;
       panic!("Error registering with server: {:?}", body_bytes);
     }
-    let headers = resp.headers();
-    let new_key = headers.get("key").unwrap().to_str().unwrap().as_bytes();
+
+    Ok(resp.headers().to_owned())
+
+  }
+
+  async fn register(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+
+    let headers = self.send_data("/register", Vec::new()).await?;
+    let new_key = headers.get("key").unwrap().as_bytes();
     println!("Registration with server successful");
 
     // create new file, overwriting the old. Set permissions
@@ -161,11 +165,5 @@ impl User {
 
   }
 
-  pub fn send_data(&self, output_info: command::OutputInfo) -> io::Result<()> {
-
-    println!("{}", output_info.filename);
-
-    Ok(())
-  }
 
 }
