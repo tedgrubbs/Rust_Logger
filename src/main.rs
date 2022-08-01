@@ -14,15 +14,26 @@ async fn main() {
   if args.len() == 1 {
     println!("Try entering a command like:");
     println!("log mpirun -np 4 lmp -in in.crack");
+    println!("Or to just compress and send a directory use log -c ");
     return;
   }
 
   args.remove(0);
+
+  // Can just compress directory and send it if simulation has already ran
+  let mut compress_only = false;
+  if args[0] == "-c" {
+    args.remove(0);
+    compress_only = true;
+  }
+
   let cmd = Command::command(args);
-  let output_info = match cmd.execute() {
-    Ok(v) => v,
-    Err(e) => panic!("Error executing command {}", e)
+
+  let output_info = match compress_only {
+    false => cmd.execute().unwrap(),
+    true => cmd.compress_and_hash().unwrap()
   };
+  
 
 
   user.send_output(output_info).await;

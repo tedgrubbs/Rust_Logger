@@ -38,26 +38,16 @@ impl Command {
     // Get input file directory path and moving to it to ensure logs are stored there
     let input_file_path = path::Path::new(&input_file_path).to_path_buf();
 
-    let mut real_string = String::new();
-    for s in cmd_string {
-        real_string.push_str(&s);
-        real_string.push_str(" ");
-    }
-    println!("New string: {}", &real_string);
-
-    Command {
-      cmd_string: real_string,
-      input_file_path
-    }
-
-
-  }
-
-  pub fn execute(&self) -> io::Result<OutputInfo> {
-
     // Setting our current working directoy to the location of the input lammps file.
-    if self.input_file_path.parent().unwrap() != path::Path::new("") {
-      match env::set_current_dir(self.input_file_path.parent().unwrap()) {
+    if input_file_path.parent().unwrap() != path::Path::new("") {
+
+      // if input_file_path is a directory do not move into parent
+      let change_dir = match input_file_path.is_dir() {
+        true => &input_file_path,
+        false => input_file_path.parent().unwrap()
+      };
+
+      match env::set_current_dir(change_dir) {
         Ok(()) => (),
         Err(error) => match error.kind() {
           io::ErrorKind::NotFound => {
@@ -67,9 +57,22 @@ impl Command {
         }
       };
     }
+    println!("Moved to {}", env::current_dir().unwrap().display());
 
+    let mut real_string = String::new();
+    for s in cmd_string {
+        real_string.push_str(&s);
+        real_string.push_str(" ");
+    }
 
-    println!("Moved to {}", env::current_dir()?.display());
+    Command {
+      cmd_string: real_string,
+      input_file_path
+    }
+
+  }
+
+  pub fn execute(&self) -> io::Result<OutputInfo> {
 
     // Executing lammps command by calling lmp directly through shell command
     let mut cmd = process::Command::new("sh");
@@ -90,6 +93,10 @@ impl Command {
       Err(err) => panic!("Problem running command {:?}", err)
     };
 
+    Ok(self.compress_and_hash().unwrap())
+  }
+
+  pub fn compress_and_hash(&self) -> io::Result<OutputInfo> {
     // Compressing output directory
     let mut output_filename = String::new();
     output_filename.push_str(self.input_file_path.file_name().unwrap().to_str().unwrap());

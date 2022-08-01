@@ -119,7 +119,7 @@ impl User {
 
     let headers = self.send_data(Endpoint::REGISTER, Vec::new()).await?;
     let new_key = headers.get("key").unwrap().as_bytes();
-    println!("Registration with server successful");
+    println!("Registration with server successful\n");
 
     // create new file, overwriting the old. Set permissions
     self.get_root();
@@ -136,7 +136,7 @@ impl User {
 
     if !path::Path::new(KEY_FILE).exists() {
 
-      println!("No credential file found. Starting registration process. Please enter the administrator password: ");
+      println!("No credential file found. Starting registration process.\nPlease enter the administrator password: ");
       self.admin_password.push_str(&rpassword::read_password().unwrap());
       task::block_on(self.register()).unwrap();
 
