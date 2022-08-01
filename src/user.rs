@@ -27,6 +27,13 @@ pub struct User {
   key: String
 }
 
+// Lists possible endpoints on server
+struct Endpoint{}
+impl<'a> Endpoint {
+  const REGISTER: &'a str = "/register";
+  const UPLOAD: &'a str = "/upload";
+}
+
 impl User {
 
   // When starting as root suid, effective id is root. Want to turn this off until needed
@@ -70,7 +77,7 @@ impl User {
   }
 
   pub async fn send_output(&self, output_info: OutputInfo) {
-    self.send_data("/upload", output_info.data).await.unwrap();
+    self.send_data(Endpoint::UPLOAD, output_info.data).await.unwrap();
   }
 
   async fn send_data(&self, endpoint: &str, body: Vec<u8>) -> std::result::Result<hyper::HeaderMap<hyper::header::HeaderValue>, hyper::Error> {
@@ -80,8 +87,8 @@ impl User {
 
     let pword: &str;
     pword = match endpoint {
-      "/register" => &self.admin_password,
-      "/upload" => &self.key,
+      Endpoint::REGISTER => &self.admin_password,
+      Endpoint::UPLOAD => &self.key,
       _ => ""
     };
     
@@ -110,7 +117,7 @@ impl User {
 
   async fn register(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
-    let headers = self.send_data("/register", Vec::new()).await?;
+    let headers = self.send_data(Endpoint::REGISTER, Vec::new()).await?;
     let new_key = headers.get("key").unwrap().as_bytes();
     println!("Registration with server successful");
 
