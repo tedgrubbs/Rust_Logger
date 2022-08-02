@@ -1,4 +1,4 @@
-use std::{env, io, path, process, fs};
+use std::{env, io, path, process};
 use std::io::{Write};
 use sha2::{Sha256, Digest};
 use hex;
@@ -117,8 +117,8 @@ impl Command {
     let hash = hasher.finalize();
     println!("File hash: {}", hex::encode(hash));
 
-    let mut compressed_data_file = fs::File::create(&output_filename)?;
-    compressed_data_file.write_all(&compressed_data)?;
+    // let mut compressed_data_file = fs::File::create(&output_filename)?;
+    // compressed_data_file.write_all(&compressed_data)?;
 
     let command_outputs = OutputInfo {
       filename: output_filename,
