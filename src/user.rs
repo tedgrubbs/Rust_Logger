@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::{fs, io, path, collections::HashMap};
+use std::{fs, io, path, collections::HashMap, result::Result};
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 
@@ -11,6 +11,7 @@ use hyper::Client;
 use hyper::{Body, Method, Request,StatusCode};
 use hyper_tls::HttpsConnector;
 
+use tokio::runtime::Runtime;
 use crate::command::OutputInfo;
 
 const KEY_FILE: &str = "/etc/.Rust_Logger_Credentials";
@@ -74,11 +75,12 @@ impl User {
     }
   }
 
-  pub async fn send_output(&self, output_info: OutputInfo) {
-    self.send_data(Endpoint::UPLOAD, Some(output_info)).await.unwrap();
+  pub fn send_output(&self, output_info: OutputInfo) {
+    self.send_data(Endpoint::UPLOAD, Some(output_info)).unwrap();
   }
  
-  async fn send_data(&self, endpoint: &str, file_info: Option<OutputInfo>) -> std::result::Result<hyper::HeaderMap<hyper::header::HeaderValue>, hyper::Error> {
+
+  fn send_data(&self, endpoint: &str, file_info: Option<OutputInfo>) -> Result<hyper::HeaderMap<hyper::header::HeaderValue>, hyper::Error> {
     let mut server: String = self.db_table.get("Server").unwrap().to_string();
     server.insert_str(0, "https://");
     server.push_str(endpoint);
@@ -108,21 +110,28 @@ impl User {
     let https = HttpsConnector::new();
     let client = Client::builder().build::<_, hyper::Body>(https);
 
-    let resp = client.request(req).await?;
-    let status = resp.status();
-    println!("{}", status);
-    if status != StatusCode::OK {
-      let body_bytes = hyper::body::to_bytes(resp.into_body()).await?;
-      panic!("Error registering with Server {:?}", body_bytes);
-    }
+    // No need to make entire program asynchronous so just defining runtime here to keep it isolated.
+    // Runtime creation takes only 1 or 2 milliseconds
+    let rt = Runtime::new().unwrap();
+    let resp = rt.block_on(async move {
+      let resp = client.request(req).await.unwrap();
+      let status = resp.status();
+      println!("{}", status);
+      if status != StatusCode::OK {
+        let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
+        panic!("Error registering with Server {:?}", body_bytes);
+      }
+      resp
+    });
+    
 
     Ok(resp.headers().to_owned())
 
   }
 
-  async fn register(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+   fn register(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
-    let headers = self.send_data(Endpoint::REGISTER, None).await?;
+    let headers = self.send_data(Endpoint::REGISTER, None)?;
     let new_key = headers.get("key").unwrap().as_bytes();
     println!("Registration with server successful\n");
 
@@ -137,13 +146,13 @@ impl User {
     Ok(())
   }
 
-  pub async fn check_creds(&mut self) -> io::Result<()> {
+  pub fn check_creds(&mut self) -> io::Result<()> {
 
     if !path::Path::new(KEY_FILE).exists() {
 
       println!("No credential file found. Starting registration process.\nPlease enter the administrator password: ");
       self.admin_password.push_str(&rpassword::read_password().unwrap());
-      self.register().await.unwrap();
+      self.register().unwrap();
 
     }
 

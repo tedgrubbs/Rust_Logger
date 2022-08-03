@@ -1,15 +1,14 @@
 use log::user::*;
 use log::command::*;
-use std::env;
+use std::{env};
 
 // Don't need this to be multi-threaded
 // It's only asynchronous bc of hyper's requests
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
+fn main() {
   println!();
 
   let mut user = User::user();
-  user.check_creds().await.unwrap();
+  user.check_creds().unwrap();
 
   let mut args: Vec<String> = env::args().collect();
 
@@ -38,7 +37,6 @@ async fn main() {
   
 
 
-  user.send_output(output_info).await;
-
+  user.send_output(output_info);
 
 }
