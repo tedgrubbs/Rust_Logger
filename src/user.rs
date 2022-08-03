@@ -11,8 +11,6 @@ use hyper::Client;
 use hyper::{Body, Method, Request,StatusCode};
 use hyper_tls::HttpsConnector;
 
-use async_std::task;
-
 use crate::command::OutputInfo;
 
 const KEY_FILE: &str = "/etc/.Rust_Logger_Credentials";
@@ -145,7 +143,7 @@ impl User {
 
       println!("No credential file found. Starting registration process.\nPlease enter the administrator password: ");
       self.admin_password.push_str(&rpassword::read_password().unwrap());
-      task::block_on(self.register()).unwrap();
+      self.register().await.unwrap();
 
     }
 
