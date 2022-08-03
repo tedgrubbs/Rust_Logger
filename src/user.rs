@@ -17,7 +17,7 @@ use crate::command::OutputInfo;
 
 const KEY_FILE: &str = "/etc/.Rust_Logger_Credentials";
 
-const CONN_OPTIONS: [&str; 2] = ["Username:", "Server:"];
+const LOG_OPTIONS: [&str; 2] = ["Username", "Server"];
 
 pub struct User {
   user_id: u32,
@@ -81,7 +81,7 @@ impl User {
   }
  
   async fn send_data(&self, endpoint: &str, file_info: Option<OutputInfo>) -> std::result::Result<hyper::HeaderMap<hyper::header::HeaderValue>, hyper::Error> {
-    let mut server: String = self.db_table.get("Server:").unwrap().to_string();
+    let mut server: String = self.db_table.get("Server").unwrap().to_string();
     server.insert_str(0, "https://");
     server.push_str(endpoint);
 
@@ -96,7 +96,7 @@ impl User {
     .method(Method::POST)
     .uri(server)
     .header("password", pword)
-    .header("username", self.db_table.get("Username:").unwrap().to_string());
+    .header("username", self.db_table.get("Username").unwrap().to_string());
     
     let req = match file_info {
       None => req.body(Body::from("")).unwrap(),
@@ -115,7 +115,7 @@ impl User {
     println!("{}", status);
     if status != StatusCode::OK {
       let body_bytes = hyper::body::to_bytes(resp.into_body()).await?;
-      panic!("Error registering with server: {:?}", body_bytes);
+      panic!("Error registering with Server {:?}", body_bytes);
     }
 
     Ok(resp.headers().to_owned())
@@ -163,29 +163,30 @@ impl User {
     if !path::Path::new(&self.logger_config_path).exists() {
       println!("Error: credentials not set up. Cannot log data before setup.");
       println!("Please create a file at ~/.log/config with the connection details like so:");
-      for s in CONN_OPTIONS {
-        println!("{}", s);
+      for s in LOG_OPTIONS {
+        println!("{} <value>", s);
       }
       println!("");
       panic!();
     }
 
-    let creds = fs::read_to_string(&self.logger_config_path).expect("error reading credential file");
+    let log_options = fs::read_to_string(&self.logger_config_path).expect("error reading credential file");
 
-    // parsing credential string to insert values into db_table
-    for cred_parameter in CONN_OPTIONS {
+    for l in log_options.lines() {
+      let line: Vec<&str> = l.split_whitespace().collect();
+      if line.len() == 0 || line[0].chars().nth(0).unwrap() == '#' {
+        continue;
+      }
 
-      let index = match creds.find(cred_parameter) {
-        Some(v) => v,
-        None => panic!("Missing parameter in credentials file")
-      };
+      if !LOG_OPTIONS.contains(&line[0]) {
+        panic!("Unknown config parameter found: {}", line[0])
+      }
 
       self.db_table.insert(
-        cred_parameter.to_string(),
-        creds.split_at(index+cred_parameter.len()).1.split_once('\n').unwrap().0.to_string()
+        line[0].to_string(),
+        line[1].to_string()
       );
     }
-
 
     // for (k,v) in &self.db_table {
     //   println!("{}{}", k,v);

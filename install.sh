@@ -1,7 +1,7 @@
 #!/bin/bash
 
 mkdir $HOME/.log
-config='Username:Moscow\nServer:localhost:1241'
+config='Username Moscow\nServer localhost:1241'
 
 config_path=$HOME/.log/config
 

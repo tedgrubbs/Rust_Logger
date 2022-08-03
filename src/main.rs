@@ -2,7 +2,9 @@ use log::user::*;
 use log::command::*;
 use std::env;
 
-#[tokio::main]
+// Don't need this to be multi-threaded
+// It's only asynchronous bc of hyper's requests
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
   println!();
 
