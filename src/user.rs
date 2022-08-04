@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::{fs, io, path, collections::HashMap, result::Result};
+use std::{fs, io, path, collections::HashMap};
 use std::io::prelude::*;
 use std::os::unix::fs::PermissionsExt;
 
@@ -76,11 +76,11 @@ impl User {
   }
 
   pub fn send_output(&self, output_info: OutputInfo) {
-    self.send_data(Endpoint::UPLOAD, Some(output_info)).unwrap();
+    self.send_data(Endpoint::UPLOAD, Some(output_info));
   }
  
 
-  fn send_data(&self, endpoint: &str, file_info: Option<OutputInfo>) -> Result<hyper::HeaderMap<hyper::header::HeaderValue>, hyper::Error> {
+  fn send_data(&self, endpoint: &str, file_info: Option<OutputInfo>) -> Option<hyper::HeaderMap<hyper::header::HeaderValue>> {
     let mut server: String = self.db_table.get("Server").unwrap().to_string();
     server.insert_str(0, "https://");
     server.push_str(endpoint);
@@ -119,19 +119,20 @@ impl User {
       println!("{}", status);
       if status != StatusCode::OK {
         let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-        panic!("Error registering with Server {:?}", body_bytes);
+        println!("Error: {:?}", body_bytes);
+        None
+      } else {
+        Some(resp.headers().to_owned())
       }
-      resp
+      
     });
     
-
-    Ok(resp.headers().to_owned())
-
+    resp
   }
 
    fn register(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
-    let headers = self.send_data(Endpoint::REGISTER, None)?;
+    let headers = self.send_data(Endpoint::REGISTER, None).unwrap();
     let new_key = headers.get("key").unwrap().as_bytes();
     println!("Registration with server successful\n");
 
