@@ -2,8 +2,7 @@ use log::user::*;
 use log::command::*;
 use std::{env};
 
-// Don't need this to be multi-threaded
-// It's only asynchronous bc of hyper's requests
+
 fn main() {
   println!();
 
@@ -13,13 +12,20 @@ fn main() {
   let mut args: Vec<String> = env::args().collect();
 
   if args.len() == 1 {
-    println!("Try entering a command like:");
-    println!("log mpirun -np 4 lmp -in in.crack");
-    println!("Or to just compress and send a directory use log -c ");
+    println!("\nTry entering a command like:");
+    println!("log mpirun -np 4 lmp -in in.crack\n");
+    println!("Or to just compress and send a directory:\nlog -c -in <file or directory>\n");
+    println!("To clean up dead files on the server:\nlog clean");
     return;
   }
 
   args.remove(0);
+
+  if args[0] == "clean" {
+    args.remove(0);
+    user.clean_up();
+    return;
+  }
 
   // Can just compress directory and send it if simulation has already ran
   let mut compress_only = false;

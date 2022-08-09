@@ -31,6 +31,7 @@ struct Endpoint{}
 impl<'a> Endpoint {
   const REGISTER: &'a str = "/register";
   const UPLOAD: &'a str = "/upload";
+  const CLEANUP: &'a str = "/cleanup";
 }
 
 impl User {
@@ -87,6 +88,7 @@ impl User {
 
     let pword = match endpoint {
       Endpoint::REGISTER => &self.admin_password,
+      Endpoint::CLEANUP => &self.admin_password,
       Endpoint::UPLOAD => &self.key,
       _ => ""
     };
@@ -114,15 +116,21 @@ impl User {
     // Runtime creation takes only 1 or 2 milliseconds
     let rt = Runtime::new().unwrap();
     let resp = rt.block_on(async move {
+
       let resp = client.request(req).await.unwrap();
       let status = resp.status();
       println!("{}", status);
+
+      let headers = resp.headers().to_owned();
+      let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
+      let body_string = std::str::from_utf8(&body_bytes).unwrap();
+
       if status != StatusCode::OK {
-        let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-        println!("Error: {:?}", body_bytes);
+        println!("Error: {}", body_string);
         None
       } else {
-        Some(resp.headers().to_owned())
+        println!("{}", body_string);
+        Some(headers)
       }
       
     });
@@ -145,6 +153,12 @@ impl User {
     self.return_root();
 
     Ok(())
+  }
+
+  pub fn clean_up(&mut self) {
+    println!("\nPlease enter the administrator password: ");
+      self.admin_password.push_str(&rpassword::read_password().unwrap());
+      self.send_data(Endpoint::CLEANUP, None).unwrap();
   }
 
   pub fn check_creds(&mut self) -> io::Result<()> {
