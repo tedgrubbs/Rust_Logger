@@ -34,7 +34,7 @@ fn main() {
     compress_only = true;
   }
 
-  let cmd = Command::command(args);
+  let cmd = Command::command(args, user.db_table.get("tracked_files").unwrap().split_whitespace().collect());
 
   let output_info = match compress_only {
     false => cmd.execute().unwrap(),

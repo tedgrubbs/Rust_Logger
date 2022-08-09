@@ -1,5 +1,6 @@
-use std::{env, io, path, process};
-use std::io::{Write};
+use std::collections::HashMap;
+use std::{env, io, path, process, fs};
+use std::io::{Write, Read};
 use sha2::{Sha256, Digest};
 use hex;
 use tar::Builder;
@@ -7,9 +8,10 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 
 
-pub struct Command {
-  cmd_string: String,
-  input_file_path: path::PathBuf,
+pub struct Command<'a> {
+  cmd_string: String, // full command for Lammps
+  input_file_path: path::PathBuf, // location of lammps input file or directory
+  file_types: Vec<&'a str> // allowed input filetypes 
 }
 
 pub struct OutputInfo {
@@ -18,9 +20,9 @@ pub struct OutputInfo {
   pub data: Vec<u8>,
 }
 
-impl Command {
+impl Command<'_> {
 
-  pub fn command(cmd_string: Vec<String>) -> Command {
+  pub fn command(cmd_string: Vec<String>, file_types: Vec<&str>) -> Command {
     println!("Command string received: {:?}", cmd_string);
 
     // get full input file path
@@ -67,7 +69,8 @@ impl Command {
 
     Command {
       cmd_string: real_string,
-      input_file_path
+      input_file_path,
+      file_types
     }
 
   }
@@ -96,7 +99,58 @@ impl Command {
     Ok(self.compress_and_hash().unwrap())
   }
 
+  fn track_files(&self) -> io::Result<()> {
+
+    let mut tracked_file_hashes: HashMap<String, Vec<u8>> = HashMap::new();
+
+    let files = fs::read_dir(&self.input_file_path)?;
+
+    // gets hash of every file that should be tracked 
+    for f in files {
+
+      let filename = f.unwrap().file_name().into_string().unwrap();
+
+      for s in &self.file_types {
+        if filename.contains(s) {
+          
+          let mut file = fs::File::open(&filename)?;
+          let mut file_data: Vec<u8> = Vec::new();
+          file.read_to_end(&mut file_data)?;
+          let hash = Sha256::digest(&file_data);
+          tracked_file_hashes.insert(filename, hash.to_vec());
+          break;
+
+        }
+      }
+      
+    }
+
+    // Then put all hashes into hidden text file along with one "master" hash that sums up the whole directory
+    let mut filenames: Vec<&String> = tracked_file_hashes.keys().collect();
+    filenames.sort();
+    let mut final_hasher = Sha256::new();
+    let mut rev_file = fs::File::create(".rev")?;
+
+    for f in filenames {
+      rev_file.write_all(f.as_bytes())?;
+      rev_file.write_all(b" ")?;
+      rev_file.write_all(hex::encode(tracked_file_hashes.get(f).unwrap()).as_bytes())?;
+      rev_file.write_all(b"\n")?;
+      final_hasher.update(tracked_file_hashes.get(f).unwrap());
+    }
+    let final_hash = final_hasher.finalize();
+    rev_file.write_all(b"id ")?;
+    rev_file.write_all(hex::encode(final_hash).as_bytes())?;
+    rev_file.flush()?;
+    
+
+    Ok(())
+  }
+
   pub fn compress_and_hash(&self) -> io::Result<OutputInfo> {
+    
+    self.track_files().unwrap();
+
     // Compressing output directory
     let mut output_filename = String::new();
     output_filename.push_str(self.input_file_path.file_name().unwrap().to_str().unwrap());
@@ -112,9 +166,7 @@ impl Command {
     let compressed_data = encoder.finish()?;
 
     println!("\nCalculating file hash...");
-    let mut hasher = Sha256::new();
-    hasher.update(&compressed_data);
-    let hash = hasher.finalize();
+    let hash = Sha256::digest(&compressed_data);
     println!("File hash: {}", hex::encode(hash));
 
     // let mut compressed_data_file = fs::File::create(&output_filename)?;

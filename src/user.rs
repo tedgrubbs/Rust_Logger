@@ -16,7 +16,7 @@ use crate::command::OutputInfo;
 
 const KEY_FILE: &str = "/etc/.Rust_Logger_Credentials";
 
-const LOG_OPTIONS: [&str; 2] = ["Username", "Server"];
+const LOG_OPTIONS: [&str; 3] = ["Username", "Server", "tracked_files"];
 
 pub struct User {
   user_id: u32,
@@ -204,14 +204,32 @@ impl User {
         panic!("Unknown config parameter found: {}", line[0])
       }
 
-      self.db_table.insert(
-        line[0].to_string(),
-        line[1].to_string()
-      );
+      // tracked_files can actually contain multiple substrings as file extensions
+      if line[0] == "tracked_files" {
+
+        let mut big_string = String::new();
+        for s in &line[1..] {
+          big_string.push_str(s);
+          big_string.push(' ');
+        }
+
+        self.db_table.insert(
+          line[0].to_string(),
+          big_string
+        );
+
+      } else { // everything else is a single string
+
+        self.db_table.insert(
+          line[0].to_string(),
+          line[1].to_string()
+        );
+
+      }
     }
 
     // for (k,v) in &self.db_table {
-    //   println!("{}{}", k,v);
+    //   println!("{} {}", k,v);
     // }
 
   }
