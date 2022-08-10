@@ -112,7 +112,7 @@ impl Command<'_> {
   fn get_current_filehashes(&mut self) -> io::Result<()> {
 
     // reads all file names into vec and sorts so the final hash will be deterministic
-    let files = fs::read_dir(&self.input_file_path)?;
+    let files = fs::read_dir(env::current_dir()?)?;
     let mut filenames: Vec<String> = Vec::new();
     for f in files {
       filenames.insert(0, f.unwrap().file_name().into_string().unwrap());
