@@ -34,15 +34,23 @@ fn main() {
     compress_only = true;
   }
 
-  let cmd = Command::command(args, user.db_table.get("tracked_files").unwrap().split_whitespace().collect());
+  let mut cmd = Command::command(args, user.db_table.get("tracked_files").unwrap().split_whitespace().collect());
 
   let output_info = match compress_only {
     false => cmd.execute().unwrap(),
     true => cmd.compress_and_hash().unwrap()
   };
   
-
-
-  user.send_output(output_info);
+  // if need to update record, should communicate with server to check if current record id exists
+  if cmd.needs_update {
+    if user.check_id(output_info) {
+      println!("Record exists, can update");
+    } else {
+      println!("Current record not found, revert changes and upload again");
+    }
+    
+  } else {
+    user.send_output(output_info);
+  }
 
 }

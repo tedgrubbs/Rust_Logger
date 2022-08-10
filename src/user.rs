@@ -32,6 +32,7 @@ impl<'a> Endpoint {
   const REGISTER: &'a str = "/register";
   const UPLOAD: &'a str = "/upload";
   const CLEANUP: &'a str = "/cleanup";
+  const ID_CHECK: &'a str = "/check";
 }
 
 impl User {
@@ -79,6 +80,17 @@ impl User {
   pub fn send_output(&self, output_info: OutputInfo) {
     self.send_data(Endpoint::UPLOAD, Some(output_info));
   }
+
+  pub fn check_id(&self, output_info: OutputInfo) -> bool {
+    let result = self.send_data(Endpoint::ID_CHECK, Some(output_info)).unwrap();
+    
+    match result.get("id_exists").unwrap().as_bytes() {
+      b"1" => true,
+      b"0" => false,
+      _ => panic!("Error at header return")
+    }
+    
+  }
  
 
   fn send_data(&self, endpoint: &str, file_info: Option<OutputInfo>) -> Option<hyper::HeaderMap<hyper::header::HeaderValue>> {
@@ -90,6 +102,7 @@ impl User {
       Endpoint::REGISTER => &self.admin_password,
       Endpoint::CLEANUP => &self.admin_password,
       Endpoint::UPLOAD => &self.key,
+      Endpoint::ID_CHECK => &self.key,
       _ => ""
     };
     
@@ -103,9 +116,19 @@ impl User {
     let req = match file_info {
       None => req.body(Body::from("")).unwrap(),
       Some(f) => {
-        let req = req.header("filename", f.filename);
-        let req = req.header("filehash", f.hash);
-        req.body(Body::from(f.data)).unwrap()
+        match endpoint {
+          // can just reuse the filehash header for this
+          Endpoint::ID_CHECK => {
+            println!("{}", f.record_file_hashes.get("id").unwrap());
+            let req = req.header("filehash", f.record_file_hashes.get("id").unwrap());
+            req.body(Body::from("")).unwrap()
+          },
+          _ => {
+            let req = req.header("filename", f.filename);
+            let req = req.header("filehash", f.hash);
+            req.body(Body::from(f.compressed_dir)).unwrap()
+          }
+        }
       }
     };
 

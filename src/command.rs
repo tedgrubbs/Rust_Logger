@@ -11,14 +11,20 @@ use flate2::Compression;
 pub struct Command<'a> {
   cmd_string: String, // full command for Lammps
   input_file_path: path::PathBuf, // location of lammps input file or directory
-  file_types: Vec<&'a str> // allowed input filetypes 
+  file_types: Vec<&'a str>, // allowed input filetypes 
+  curr_file_hashes: HashMap<String,String>,
+  record_file_hashes: HashMap<String,String>,
+  pub needs_update: bool
 }
 
 pub struct OutputInfo {
   pub filename: String,
   pub hash: String,
-  pub data: Vec<u8>,
+  pub compressed_dir: Vec<u8>,
+  pub record_file_hashes: HashMap<String,String>,
 }
+
+
 
 impl Command<'_> {
 
@@ -70,12 +76,15 @@ impl Command<'_> {
     Command {
       cmd_string: real_string,
       input_file_path,
-      file_types
+      file_types,
+      curr_file_hashes: HashMap::new(),
+      record_file_hashes: HashMap::new(),
+      needs_update: false
     }
 
   }
 
-  pub fn execute(&self) -> io::Result<OutputInfo> {
+  pub fn execute(&mut self) -> io::Result<OutputInfo> {
 
     // Executing lammps command by calling lmp directly through shell command
     let mut cmd = process::Command::new("sh");
@@ -99,55 +108,135 @@ impl Command<'_> {
     Ok(self.compress_and_hash().unwrap())
   }
 
-  fn track_files(&self) -> io::Result<()> {
+  // Gets hashes for current files in working directory
+  fn get_current_filehashes(&mut self) -> io::Result<()> {
 
-    let mut tracked_file_hashes: HashMap<String, Vec<u8>> = HashMap::new();
-
+    // reads all file names into vec and sorts so the final hash will be deterministic
     let files = fs::read_dir(&self.input_file_path)?;
+    let mut filenames: Vec<String> = Vec::new();
+    for f in files {
+      filenames.insert(0, f.unwrap().file_name().into_string().unwrap());
+    }
+    filenames.sort();
+
+    let mut final_hasher = Sha256::new();
 
     // gets hash of every file that should be tracked 
-    for f in files {
-
-      let filename = f.unwrap().file_name().into_string().unwrap();
+    for f in filenames {
 
       for s in &self.file_types {
-        if filename.contains(s) {
+        if f.contains(s) {
           
-          let mut file = fs::File::open(&filename)?;
+          let mut file = fs::File::open(&f)?;
           let mut file_data: Vec<u8> = Vec::new();
           file.read_to_end(&mut file_data)?;
           let hash = Sha256::digest(&file_data);
-          tracked_file_hashes.insert(filename, hash.to_vec());
+          final_hasher.update(hash);
+          self.curr_file_hashes.insert(f, hex::encode(hash));
           break;
 
         }
       }
-      
-    }
-
-    // Then put all hashes into hidden text file along with one "master" hash that sums up the whole directory
-    let mut filenames: Vec<&String> = tracked_file_hashes.keys().collect();
-    filenames.sort();
-    let mut final_hasher = Sha256::new();
-    let mut rev_file = fs::File::create(".rev")?;
-
-    for f in filenames {
-      rev_file.write_all(f.as_bytes())?;
-      rev_file.write_all(b" ")?;
-      rev_file.write_all(hex::encode(tracked_file_hashes.get(f).unwrap()).as_bytes())?;
-      rev_file.write_all(b"\n")?;
-      final_hasher.update(tracked_file_hashes.get(f).unwrap());
     }
     let final_hash = final_hasher.finalize();
-    rev_file.write_all(b"id ")?;
-    rev_file.write_all(hex::encode(final_hash).as_bytes())?;
-    rev_file.flush()?;
-    
+    self.curr_file_hashes.insert("id".to_string(), hex::encode(final_hash));
 
     Ok(())
   }
 
-  pub fn compress_and_hash(&self) -> io::Result<OutputInfo> {
+  // generic function for reading a config file into a hashmap
+  fn read_file_into_hash(filepath: &str, allowed_opts: Option<&[&str]>) -> io::Result<HashMap<String, String>> {
+
+    let mut new_hash = HashMap::new();
+    let options = fs::read_to_string(filepath)?;
+
+    for l in options.lines() {
+      let line: Vec<&str> = l.split_whitespace().collect();
+      if line.len() == 0 || line[0].chars().nth(0).unwrap() == '#' {
+        continue;
+      }
+
+      if allowed_opts != None && !allowed_opts.unwrap().contains(&line[0]) {
+        panic!("Unknown config parameter found: {}", line[0])
+      }
+
+      new_hash.insert(
+        line[0].to_string(),
+        line[1].to_string()
+      );
+
+    }
+
+    Ok(new_hash)
+  }
+
+  fn get_record_filehashes(&mut self)  {
+    self.record_file_hashes = Command::read_file_into_hash(".rev", None).unwrap();
+  }
+
+  fn track_files(&mut self) -> io::Result<()> {
+
+    self.get_current_filehashes().unwrap();
+    println!("Got current file hashes");
+    for (k,v) in &self.curr_file_hashes {
+      println!("{}: {}", k,v)
+    }
+
+    // if .rev file exists, get those recorded hashes, otherwise need to create it
+    // will return immediately after creating new rev file
+    if path::Path::new(".rev").exists() {
+      println!("\nReading old hashes from file");
+      self.get_record_filehashes();
+      for (k,v) in &self.record_file_hashes {
+        println!("{}: {}", k,v)
+      }
+
+    } else {
+      println!("No .rev file found, creating a new one");
+      // Puts all hashes into hidden text file along with one "master" hash that sums up the whole directory
+      let mut filenames: Vec<&String> = self.curr_file_hashes.keys().collect();
+      filenames.sort();
+
+      let mut rev_file = fs::File::create(".rev")?;
+
+      for f in filenames {
+        rev_file.write_all(f.as_bytes())?;
+        rev_file.write_all(b" ")?;
+        rev_file.write_all(self.curr_file_hashes.get(f).unwrap().as_bytes())?;
+        rev_file.write_all(b"\n")?;
+      }
+
+      rev_file.write_all(b"parent_id *")?;
+      rev_file.flush()?;
+
+      return Ok(())
+    }
+
+    // can now check if there are any discrepencies between recorded and current filehashes
+    self.check_hashes();
+
+    if self.needs_update {
+      println!("\nDiscrepency found, need to update record\n");
+    } else {
+      println!("\nNo changes detected in tracked files\n");
+    }
+
+    Ok(())
+  }
+
+  fn check_hashes(&mut self) {
+
+    for (k,v) in &self.curr_file_hashes {
+      let record_hash = self.record_file_hashes.get(k).unwrap();
+      if record_hash != v {
+        self.needs_update = true;
+        break;
+      }
+    }
+
+  }
+
+  pub fn compress_and_hash(&mut self) -> io::Result<OutputInfo> {
     
     self.track_files().unwrap();
 
@@ -175,7 +264,8 @@ impl Command<'_> {
     let command_outputs = OutputInfo {
       filename: output_filename,
       hash: hex::encode(hash),
-      data: compressed_data,
+      compressed_dir: compressed_data,
+      record_file_hashes: self.record_file_hashes.to_owned()
     };
 
     Ok(command_outputs)
