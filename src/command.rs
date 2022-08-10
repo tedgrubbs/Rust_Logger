@@ -174,7 +174,39 @@ impl Command<'_> {
     self.record_file_hashes = Command::read_file_into_hash(".rev", None).unwrap();
   }
 
-  fn track_files(&mut self) -> io::Result<()> {
+  pub fn update_record(&mut self) {
+
+    // current id becomes the new parent id
+    self.update_rev_file(Some(self.record_file_hashes.get("id").unwrap())).unwrap();
+
+    // update record filehashes
+    self.get_record_filehashes();
+  }
+
+  fn update_rev_file(&self, parent_id: Option<&str>) -> io::Result<()> {
+    // Puts all hashes into hidden text file along with one "master" hash that sums up the whole directory
+    let mut filenames: Vec<&String> = self.curr_file_hashes.keys().collect();
+    filenames.sort();
+
+    let mut rev_file = fs::File::create(".rev")?;
+
+    for f in filenames {
+      rev_file.write_all(f.as_bytes())?;
+      rev_file.write_all(b" ")?;
+      rev_file.write_all(self.curr_file_hashes.get(f).unwrap().as_bytes())?;
+      rev_file.write_all(b"\n")?;
+    }
+
+    rev_file.write_all(b"parent_id ")?;
+    match parent_id {
+      Some(s) => rev_file.write_all(s.as_bytes())?,
+      None => rev_file.write_all(b"*")?
+    };
+    rev_file.flush()?;
+    Ok(())
+  }
+
+  pub fn track_files(&mut self) -> io::Result<OutputInfo> {
 
     self.get_current_filehashes().unwrap();
     println!("Got current file hashes");
@@ -191,38 +223,29 @@ impl Command<'_> {
         println!("{}: {}", k,v)
       }
 
-    } else {
-      println!("No .rev file found, creating a new one");
-      // Puts all hashes into hidden text file along with one "master" hash that sums up the whole directory
-      let mut filenames: Vec<&String> = self.curr_file_hashes.keys().collect();
-      filenames.sort();
-
-      let mut rev_file = fs::File::create(".rev")?;
-
-      for f in filenames {
-        rev_file.write_all(f.as_bytes())?;
-        rev_file.write_all(b" ")?;
-        rev_file.write_all(self.curr_file_hashes.get(f).unwrap().as_bytes())?;
-        rev_file.write_all(b"\n")?;
+      // can now check if there are any discrepencies between recorded and current filehashes
+      self.check_hashes();
+      if self.needs_update {
+        println!("\nDiscrepency found, need to update record\n");
+      } else {
+        println!("\nNo changes detected in tracked files\n");
       }
 
-      rev_file.write_all(b"parent_id *")?;
-      rev_file.flush()?;
-
-      return Ok(())
-    }
-
-    // can now check if there are any discrepencies between recorded and current filehashes
-    self.check_hashes();
-
-    if self.needs_update {
-      println!("\nDiscrepency found, need to update record\n");
     } else {
-      println!("\nNo changes detected in tracked files\n");
+      println!("No .rev file found, creating a new one");
+      self.update_rev_file(None).unwrap();
     }
 
-    Ok(())
-  }
+    let basic_info = OutputInfo {
+      filename: "".to_string(),
+      hash: "".to_string(),
+      compressed_dir: Vec::new(),
+      record_file_hashes: self.record_file_hashes.to_owned()
+    };
+
+    Ok(basic_info)
+
+   }
 
   fn check_hashes(&mut self) {
 
@@ -238,8 +261,6 @@ impl Command<'_> {
 
   pub fn compress_and_hash(&mut self) -> io::Result<OutputInfo> {
     
-    self.track_files().unwrap();
-
     // Compressing output directory
     let mut output_filename = String::new();
     output_filename.push_str(self.input_file_path.file_name().unwrap().to_str().unwrap());
