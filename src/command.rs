@@ -209,19 +209,11 @@ impl Command<'_> {
   pub fn track_files(&mut self) -> io::Result<OutputInfo> {
 
     self.get_current_filehashes().unwrap();
-    println!("Got current file hashes");
-    for (k,v) in &self.curr_file_hashes {
-      println!("{}: {}", k,v)
-    }
 
     // if .rev file exists, get those recorded hashes, otherwise need to create it
     // will return immediately after creating new rev file
     if path::Path::new(".rev").exists() {
-      println!("\nReading old hashes from file");
       self.get_record_filehashes();
-      for (k,v) in &self.record_file_hashes {
-        println!("{}: {}", k,v)
-      }
 
       // can now check if there are any discrepencies between recorded and current filehashes
       self.check_hashes();

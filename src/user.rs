@@ -119,7 +119,6 @@ impl User {
         match endpoint {
           // can just reuse the filehash header for this
           Endpoint::ID_CHECK => {
-            println!("{}", f.record_file_hashes.get("id").unwrap());
             let req = req.header("filehash", f.record_file_hashes.get("id").unwrap());
             req.body(Body::from("")).unwrap()
           },
@@ -142,7 +141,7 @@ impl User {
 
       let resp = client.request(req).await.unwrap();
       let status = resp.status();
-      println!("{}", status);
+      
 
       let headers = resp.headers().to_owned();
       let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
