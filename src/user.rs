@@ -196,6 +196,7 @@ impl User {
     self.get_root();
     let mut file = fs::File::open(KEY_FILE).expect("error opening credential file");
     file.read_to_string(&mut self.key)?;
+    self.return_root();
 
     println!("Key found on local system");
     Ok(())
