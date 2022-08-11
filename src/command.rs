@@ -20,10 +20,10 @@ pub struct Command<'a> {
 }
 
 pub struct OutputInfo {
-  pub filename: String,
-  pub hash: String,
-  pub compressed_dir: Vec<u8>,
-  pub record_file_hashes: HashMap<String,String>,
+  pub filename: Option<String>,
+  pub hash: Option<String>,
+  pub compressed_dir: Option<Vec<u8>>,
+  pub record_file_hash: Option<String>,
 }
 
 
@@ -207,10 +207,10 @@ impl Command<'_> {
     }
 
     let basic_info = OutputInfo {
-      filename: "".to_string(),
-      hash: "".to_string(),
-      compressed_dir: Vec::new(),
-      record_file_hashes: self.record_file_hashes.to_owned()
+      filename: None,
+      hash: None,
+      compressed_dir: None,
+      record_file_hash: Some(self.record_file_hashes.get("id").unwrap().to_string())
     };
 
     Ok(basic_info)
@@ -260,10 +260,10 @@ impl Command<'_> {
     // compressed_data_file.write_all(&compressed_data)?;
 
     let command_outputs = OutputInfo {
-      filename: output_filename,
-      hash: hex::encode(hash),
-      compressed_dir: compressed_data,
-      record_file_hashes: self.record_file_hashes.to_owned()
+      filename: Some(output_filename),
+      hash: Some(hex::encode(hash)),
+      compressed_dir: Some(compressed_data),
+      record_file_hash: None
     };
 
     Ok(command_outputs)

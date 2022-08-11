@@ -120,13 +120,13 @@ impl User {
         match endpoint {
           // can just reuse the filehash header for this
           Endpoint::ID_CHECK => {
-            let req = req.header("filehash", f.record_file_hashes.get("id").unwrap());
+            let req = req.header("filehash", f.record_file_hash.unwrap());
             req.body(Body::from("")).unwrap()
           },
           _ => {
-            let req = req.header("filename", f.filename);
-            let req = req.header("filehash", f.hash);
-            req.body(Body::from(f.compressed_dir)).unwrap()
+            let req = req.header("filename", f.filename.unwrap());
+            let req = req.header("filehash", f.hash.unwrap());
+            req.body(Body::from(f.compressed_dir.unwrap())).unwrap()
           }
         }
       }
