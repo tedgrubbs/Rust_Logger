@@ -220,11 +220,18 @@ impl Command<'_> {
   fn check_hashes(&mut self) {
 
     for (k,v) in &self.curr_file_hashes {
-      let record_hash = self.record_file_hashes.get(k).unwrap();
+      
+      // if record doesn't exist or is different, need to update record
+      let record_hash = match self.record_file_hashes.get(k) {
+        Some(record) => record,
+        None => "None"
+      };
+
       if record_hash != v {
         self.needs_update = true;
         break;
       }
+
     }
 
   }
