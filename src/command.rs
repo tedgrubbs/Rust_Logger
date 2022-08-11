@@ -7,6 +7,8 @@ use tar::Builder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
+use utils::utils;
+
 
 pub struct Command<'a> {
   cmd_string: String, // full command for Lammps
@@ -144,34 +146,10 @@ impl Command<'_> {
     Ok(())
   }
 
-  // generic function for reading a config file into a hashmap
-  fn read_file_into_hash(filepath: &str, allowed_opts: Option<&[&str]>) -> io::Result<HashMap<String, String>> {
-
-    let mut new_hash = HashMap::new();
-    let options = fs::read_to_string(filepath)?;
-
-    for l in options.lines() {
-      let line: Vec<&str> = l.split_whitespace().collect();
-      if line.len() == 0 || line[0].chars().nth(0).unwrap() == '#' {
-        continue;
-      }
-
-      if allowed_opts != None && !allowed_opts.unwrap().contains(&line[0]) {
-        panic!("Unknown config parameter found: {}", line[0])
-      }
-
-      new_hash.insert(
-        line[0].to_string(),
-        line[1].to_string()
-      );
-
-    }
-
-    Ok(new_hash)
-  }
 
   fn get_record_filehashes(&mut self)  {
-    self.record_file_hashes = Command::read_file_into_hash(".rev", None).unwrap();
+    self.record_file_hashes.clear();
+    utils::read_file_into_hash(".rev", None, &mut self.record_file_hashes).unwrap();
   }
 
   pub fn update_record(&mut self) {

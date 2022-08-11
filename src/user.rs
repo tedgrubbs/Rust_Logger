@@ -13,6 +13,7 @@ use hyper_tls::HttpsConnector;
 
 use tokio::runtime::Runtime;
 use crate::command::OutputInfo;
+use utils::utils;
 
 const KEY_FILE: &str = "/etc/.Rust_Logger_Credentials";
 
@@ -215,41 +216,7 @@ impl User {
       panic!();
     }
 
-    let log_options = fs::read_to_string(&self.logger_config_path).expect("error reading credential file");
-
-    for l in log_options.lines() {
-      let line: Vec<&str> = l.split_whitespace().collect();
-      if line.len() == 0 || line[0].chars().nth(0).unwrap() == '#' {
-        continue;
-      }
-
-      if !LOG_OPTIONS.contains(&line[0]) {
-        panic!("Unknown config parameter found: {}", line[0])
-      }
-
-      // tracked_files can actually contain multiple substrings as file extensions
-      if line[0] == "tracked_files" {
-
-        let mut big_string = String::new();
-        for s in &line[1..] {
-          big_string.push_str(s);
-          big_string.push(' ');
-        }
-
-        self.db_table.insert(
-          line[0].to_string(),
-          big_string
-        );
-
-      } else { // everything else is a single string
-
-        self.db_table.insert(
-          line[0].to_string(),
-          line[1].to_string()
-        );
-
-      }
-    }
+    utils::read_file_into_hash(self.logger_config_path.to_str().unwrap(), Some(&LOG_OPTIONS), &mut self.db_table).unwrap();
 
     // for (k,v) in &self.db_table {
     //   println!("{} {}", k,v);
