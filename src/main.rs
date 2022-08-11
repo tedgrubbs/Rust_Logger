@@ -43,8 +43,7 @@ fn main() {
       println!("Record exists, can update");
       cmd.update_record()
     } else {
-      println!("Current record not found, revert changes and upload again");
-      return;
+      panic!("Error: Current record not found, revert changes and upload again");
     }
     
   }
