@@ -16,7 +16,7 @@ The `config` file contains a few configuration settings which are essentially ke
 >key_path /home/tedwing/.log_server/myserver.key  
 >data_path /home/tedwing/.log_server/data/  
 >database LAMMPS  
->registry data_registry
+>registry data_registry  
 >tracked_files log. in.
 
 `server_port`: Port where server should listen for incoming connections  
