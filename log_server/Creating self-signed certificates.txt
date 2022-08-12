@@ -1,0 +1,17 @@
+The below command will create a new cert/key pair for a TLS server. You only need to run this on the machine that will host the server itself.
+
+openssl req -newkey rsa:4096 -x509 -sha256 -days 365 -nodes -out myserver.crt -keyout myserver.key
+
+For Rustls/hyper server need to make sure key file starts/ends with "RSA PRIVATE KEY"
+
+
+
+The rest of this describes how to set up client systems to trust the cert that was just created.
+
+cp <crt file> /usr/share/ca-certificates/
+
+dpkg-reconfigure ca-certificates
+
+Add new cert file from list.
+
+Done 

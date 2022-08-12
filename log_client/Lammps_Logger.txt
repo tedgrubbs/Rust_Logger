@@ -1,0 +1,11 @@
+The Lammps logger or "log" program is meant to be a simple command-line utility for sending Lammps simulation results to a central server where the results can be entered into a database for permanent storage. It is composed of 2 separate programs- the client-side command-line tool and the server-side program. 
+
+Past projects that I've worked on have included several computational experiments that involved tinkering with a myriad of parameters. I have found that it is essential for progress to record the inputs and outputs of all experiments. It is easy to forget what you have and haven't tried. In the past this logging was made up of hand-written notes describing the results, along with mention of what was believed to be the key variables. Simulation inputs were stored in compressed format and were difficult to retrieve in order to replicate experiments.
+
+The Log program is meant to prevent that difficulty from ever occurring again. This utility can be used to force all simulation input/outputs to be recorded permanently.
+
+However, it is not enough to simply hold data. It also be searchable and be easy to analyze. The server-side system should have a GUI system in place to view, search, and make plots of different simulation results. This will likely be accomplished by an existing third-party application. 
+
+The current intention of the current log program is to take all simulation outputs, and send them into a database. The client-side tool will simply execute a simulation and send the results to the server-side program. The server-side program will do more heavy-lifting to parse the results into an organized set of tables in a database.
+
+This currently built fully aroudn Lammps, but there is the potential here to expand this to other programs as well. There would just need to be a schema or config file for the program to be able to parse the commands aand outputs correctly.

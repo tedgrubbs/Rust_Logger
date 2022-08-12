@@ -1,0 +1,54 @@
+
+<<<< Installation >>>>
+Needed to make the mongodb user owner of the following directory/file in order to start up
+sudo chown -R mongodb:mongodb /var/lib/mongodb
+sudo chown mongodb:mongodb /tmp/mongodb-27017.sock
+
+Otherwise installation followed normally with https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/
+
+### The commands and configuration setting shown here are not an exhaustive list of every command/config needed to create a good mongodb installation.
+Please consult the links in the text.
+
+<<<< Security setup >>>>
+
+// Security check list https://www.mongodb.com/docs/manual/administration/security-checklist/
+
+Authentication setup from https://www.mongodb.com/docs/manual/tutorial/configure-scram-client-authentication/#std-label-create-user-admin
+
+// creates a new admin
+use admin
+db.createUser(
+  {
+    user: "admin",
+    pwd: passwordPrompt(), // or cleartext password
+    roles: [
+      { role: "userAdminAnyDatabase", db: "admin" },
+      { role: "readWriteAnyDatabase", db: "admin" }
+    ]
+  }
+)
+
+// Can set up TLS with https://www.mongodb.com/docs/manual/tutorial/configure-ssl/
+
+net:
+   tls:
+      mode: requireTLS
+      certificateKeyFile: /etc/ssl/mongodb.pem
+
+can make a pem file by concatenating .crt and .key file:
+cat myserver.crt myserver.key > myserver.pem
+
+// Note that TLS connections through the driver seem to not work at all for self-signed certs. Will need to use properly verified cert if TLS in
+desired in production
+
+//When not authenticating to admin, need to specify the database that the user is attached to in the "authSource" field.
+
+
+
+<<<< Schema setup >>>>
+(In Mongo Compass) Can Create unique index after first insert by doing:
+  1  Indexes
+  2  Create Index 
+  3  give name for index 
+  4  select "hash" 
+  5  check "Create unique index" in the Options
