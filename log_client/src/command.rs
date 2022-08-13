@@ -9,6 +9,7 @@ use flate2::Compression;
 
 use utils::utils;
 
+const HASH_TRUNCATE_LENGTH: usize = 16;
 
 pub struct Command<'a> {
   cmd_string: String, // full command for Lammps
@@ -134,14 +135,14 @@ impl Command<'_> {
           file.read_to_end(&mut file_data)?;
           let hash = Sha256::digest(&file_data);
           final_hasher.update(hash);
-          self.curr_file_hashes.insert(f, hex::encode(hash));
+          self.curr_file_hashes.insert(f, hex::encode(hash)[..HASH_TRUNCATE_LENGTH].to_string());
           break;
 
         }
       }
     }
     let final_hash = final_hasher.finalize();
-    self.curr_file_hashes.insert("id".to_string(), hex::encode(final_hash));
+    self.curr_file_hashes.insert("id".to_string(), hex::encode(final_hash)[..HASH_TRUNCATE_LENGTH].to_string());
 
     Ok(())
   }
@@ -204,6 +205,7 @@ impl Command<'_> {
     } else {
       println!("No .rev file found, creating a new one");
       self.update_rev_file(None).unwrap();
+      self.get_record_filehashes();
     }
 
     let basic_info = OutputInfo {
