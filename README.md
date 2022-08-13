@@ -35,9 +35,30 @@ Everything after the `log` command is simply what I would normally run for a LAM
 
 ![Alt text](imgs/command_output_example.png)
 
-The final line: `"Data received"` let's us know that the `log_server` has received our data. Let's see what that is via Mongo Compass. 
+The final line: `"Data received"` let's us know that the `log_server` has received our data. After the LAMMPS simulation finished, `log` compressed the input file's entire directory and sent it to the server. Let's see how that looks via Mongo Compass. 
 
 ![Alt text](imgs/upload_example.png)
 
-The first things we see are several fields with `"upload_"` in the prefix. This is the associated metadata of the upload. The `files` object is what holds the actual important bits that we care about.
+The first things we see are several fields with `"upload_"` in the prefix. This is the associated metadata of the upload. `upload_path` gives the actual location where the compressed data now exists.
 
+We can view the uploaded files in the `files` object:
+
+![Alt text](imgs/uploaded_files.png)
+
+The `log_server` actually only records certain file types that we add in the server config file. But the full contents of the original directory are still within `upload_path`. This way we can store all data without clogging the database with stuff that we might not care about.
+
+>*Of course, depending on the outputs from our simulations we may be using up a lot of disk space. This can easily be changed in the future by restricting what is uploaded.*
+
+Now let's say we make a modification to our input file `in.flow.couette`. The next time we run a simulation this change will be noted by the system.
+
+However this time we can skip the simulation and just upload the folder directly- an example of the `log` functionality:
+
+`$ log -c -in in.flow.couette`
+
+This will just upload the directory without running any other external programs. In Mongo we can now inspect the `diffs` object of this newly inserted document:
+
+![Alt text](imgs/diff_example.png)
+
+We see the equivalent of a git diff of the file and see that `"# an extra line"` was added to the file.
+
+>*This summarizes the basic functionality of the Rust_Logger. It is still a work in progress. It is not enough to know the changes of our files, we also need to track certain quantities that we want to measure like maybe energy, conductivity, etc. Soon the logger config will have options to tell it what specific quantities should be retrieved from the input/output files. This will allow for easier analysis on simulation inputs/outputs.*
