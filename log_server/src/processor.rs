@@ -159,11 +159,32 @@ impl Processor {
       for line in contents.as_str().unwrap().lines() {
         let l: Vec<&str> = line.split_whitespace().collect();
 
-        for (watch_name, _watch_type) in &watch_schema {
+        for (watch_name, watch_type) in &watch_schema {
           if l.contains(&watch_name.as_str()) {
 
             let val_pos = l.iter().position(|&x| x == watch_name).unwrap() + 1;
-            watch_values.insert(watch_name.to_string(), l[val_pos].to_string());
+
+            match watch_type.as_str() {
+              "int" => {
+                let val: i64  = l[val_pos].parse().unwrap();
+                watch_values.insert(watch_name.to_string(), val);
+              },
+              "float" => {
+                let val: f64  = l[val_pos].parse().unwrap();
+                watch_values.insert(watch_name.to_string(), val);
+              },
+              "long_string" => { // string with spaces
+                watch_values.insert(watch_name.to_string(), l[val_pos..].join(" "));
+              },
+              "string" => {
+                watch_values.insert(watch_name.to_string(), l[val_pos]);
+              },
+              &_ => { // anything is simple string
+                println!("Error! Invalid watch type {}", watch_type);
+              }
+
+            };
+            
 
           }
         }
