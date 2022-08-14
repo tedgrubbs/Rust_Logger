@@ -56,36 +56,23 @@ impl Processor {
     Ok(())
   }
 
-  pub async fn process_data(&self) -> std::result::Result<(), mongodb::error::Error> {
-    
-    let mut parent_doc = Document::new();
-    let db_name = self.config.get("database").unwrap();
-    let coll_name = self.config.get("registry").unwrap();
-
-    // inserting general upload metadata
-    parent_doc.insert("upload_hash", &self.conn.filehash);
-    parent_doc.insert("upload_name", &self.conn.filename);
-    parent_doc.insert("upload_path", &self.file_path);
-    parent_doc.insert("upload_time", chrono::offset::Utc::now());
-    
-    // Decompressing file and getting tracked and .rev files
-    let mut file_doc = Document::new();
-    self.decompress_data(&mut file_doc).expect("Decompression failed");
-    let mut rev_file_hash = HashMap::new();
-    utils::read_file_into_hash(file_doc.get(".rev").unwrap().as_str().unwrap(), None, &mut rev_file_hash)?;
-    parent_doc.insert("id", rev_file_hash.get("id").unwrap());
-    parent_doc.insert("parent_id", rev_file_hash.get("parent_id").unwrap());
-
-    // Calculating diffed files
-    let mut diffs = Document::new();
-
+  async fn get_file_diffs(&self, diffs:&mut Document, file_doc: &Document, rev_file_hash: HashMap<String, String>, db_name: &str, coll_name: &str) -> std::result::Result<(), mongodb::error::Error> {
     // first getting entry whose id matches the new parent id
     let parent_id = rev_file_hash.get("parent_id").unwrap();  
     if parent_id != "*" {
 
       // get parent rev hash
       let mut res = Connection::simple_db_query(&self.db_client, "id", parent_id, db_name, coll_name).await;
-      let parent = res.try_next().await?.unwrap();
+
+      // checks for case where parent id no longer exists
+      let parent = match res.try_next().await? {
+        Some(v) => v,
+        None => {
+          println!("No matching parent id in database, may have incorrectly deleted a record");
+          return Ok(())
+        }
+      };
+
       let parent_rev = parent.get("files").unwrap().as_document().unwrap().get(".rev").unwrap().as_str().unwrap();
       let mut parent_hash = HashMap::new();
       utils::read_file_into_hash(&parent_rev, None, &mut parent_hash).unwrap();
@@ -110,8 +97,6 @@ impl Processor {
 
       }
 
-      
-
       // Diffing the modified files
       for file in modified_files {
         
@@ -133,6 +118,35 @@ impl Processor {
       }
 
     }
+
+    Ok(())
+  }
+
+  pub async fn process_data(&self) -> std::result::Result<(), mongodb::error::Error> {
+    
+    let mut parent_doc = Document::new();
+    let db_name = self.config.get("database").unwrap();
+    let coll_name = self.config.get("registry").unwrap();
+
+    // inserting general upload metadata
+    parent_doc.insert("upload_hash", &self.conn.filehash);
+    parent_doc.insert("upload_name", &self.conn.filename);
+    parent_doc.insert("upload_path", &self.file_path);
+    parent_doc.insert("upload_time", chrono::offset::Utc::now());
+    
+    // Decompressing file and getting tracked and .rev files
+    let mut file_doc = Document::new();
+    self.decompress_data(&mut file_doc).expect("Decompression failed");
+    let mut rev_file_hash = HashMap::new();
+    utils::read_file_into_hash(file_doc.get(".rev").unwrap().as_str().unwrap(), None, &mut rev_file_hash)?;
+    parent_doc.insert("id", rev_file_hash.get("id").unwrap());
+    parent_doc.insert("parent_id", rev_file_hash.get("parent_id").unwrap());
+
+    // Calculating diffed files
+    let mut diffs = Document::new();
+    self.get_file_diffs(&mut diffs, &file_doc, rev_file_hash, db_name, coll_name).await?;
+
+    
 
     // Getting all desired values from files
     let mut watch_schema: HashMap<String, String> = HashMap::new();
