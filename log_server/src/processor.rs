@@ -44,7 +44,7 @@ impl Processor {
       
       // only insert file if extension is in "tracked_files"
       for s in &file_exts {
-        if filename.contains(s) || filename.contains(".rev") {
+        if filename.contains(s) || filename.contains(".rev") || filename.contains("watch") {
           let mut buf = String::new();
           file.read_to_string(&mut buf)?;
           doc.insert(filename, buf);
@@ -116,7 +116,13 @@ impl Processor {
       for file in modified_files {
         
         let new_file = file_doc.get(file).unwrap().as_str().unwrap();
-        let old_file = parent.get("files").unwrap().as_document().unwrap().get(file).unwrap().as_str().unwrap();
+        
+        // this gets the file from the database
+        let old_file = match parent.get("files").unwrap().as_document().unwrap().get(file) {
+          Some(f) => f.as_str().unwrap(),
+          None => ""
+        };
+
         let full_diff = TextDiff::from_lines(old_file, new_file);
         let mut diffs_file_chg = Document::new();
         for (diff_idx, chg) in full_diff.unified_diff().header("old_file", "new_file").iter_hunks().enumerate() {
@@ -127,7 +133,30 @@ impl Processor {
       }
 
     }
-    
+
+    // Getting all desired values from files
+    let mut watch_schema: HashMap<String, String> = HashMap::new();
+    utils::read_file_into_hash(file_doc.get("watch").unwrap().as_str().unwrap(), None, &mut watch_schema)?;
+
+    let mut watch_values = Document::new();
+
+    for (file,contents) in &file_doc {
+      if file == "watch" { continue; }
+      for line in contents.as_str().unwrap().lines() {
+        let l: Vec<&str> = line.split_whitespace().collect();
+
+        for (watch_name, _watch_type) in &watch_schema {
+          if l.contains(&watch_name.as_str()) {
+
+            let val_pos = l.iter().position(|&x| x == watch_name).unwrap() + 1;
+            watch_values.insert(watch_name.to_string(), l[val_pos].to_string());
+
+          }
+        }
+      }
+    }
+
+    parent_doc.insert("watch", watch_values);
     parent_doc.insert("files", file_doc);
     parent_doc.insert("diffs", diffs);
     
