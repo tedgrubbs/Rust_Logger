@@ -1,6 +1,6 @@
 
 use futures_util::{TryStreamExt};
-use mongodb::{bson::{Document}, Client};
+use mongodb::{bson::{Document, Bson}, Client};
 use std::{fs::File, io::Read, io, collections::HashMap};
 use flate2::read::GzDecoder;
 use tar::Archive;
@@ -155,7 +155,9 @@ impl Processor {
     let mut watch_values = Document::new();
 
     for (file,contents) in &file_doc {
-      if file == "watch" { continue; }
+
+      if file == "watch" { continue; } // skipping watch file
+
       for line in contents.as_str().unwrap().lines() {
         let l: Vec<&str> = line.split_whitespace().collect();
 
@@ -166,8 +168,13 @@ impl Processor {
 
             match watch_type.as_str() {
               "int" => {
-                let val: i64  = l[val_pos].parse().unwrap();
-                watch_values.insert(watch_name.to_string(), val);
+                // this will skip occurrences of the watch variable with the wrong type. Kind of a hack for now
+                let val = l[val_pos].parse::<i64>();
+                match val {
+                  Ok(v) => { watch_values.insert(watch_name.to_string(), v); },
+                  Err(_e) => println!("Incorrect type, skipping")
+                };
+                
               },
               "float" => {
                 let val: f64  = l[val_pos].parse().unwrap();
@@ -190,6 +197,61 @@ impl Processor {
         }
       }
     }
+
+    // get thermo log data
+    match watch_schema.get("thermo") {
+      Some(_) => {
+
+        let f = file_doc.get("log.lammps").unwrap().as_str().unwrap(); // assuming for now log file is just "log.lammps"
+        let mut thermo_keys: Vec<&str> = Vec::new(); // this vec is used to keep the correct order of data
+        let mut thermo_data = Document::new(); //HashMap<&str, Vec<f64>> = HashMap::new();
+        let mut read_mode = false;
+        let mut read_count = 0;
+
+        for line in f.lines() {
+
+          let l: Vec<&str> = line.split_whitespace().collect();
+
+          // need to know when to stop. So will break when we no longer find numbers
+          // can clear out vec and doc to use for other runs
+          if read_mode {
+            match l[0].parse::<f64>() {
+              Ok(_) => (),
+              Err(_) => {
+                let mut doc_key = "thermo_data_".to_string();
+                doc_key.push_str(&read_count.to_string());
+                watch_values.insert(doc_key.as_str(), thermo_data.clone());
+                thermo_keys.clear();
+                thermo_data.clear();
+                read_mode = false;
+                read_count += 1;
+              }
+            };
+          }
+
+          // thermo data begins with "step". should get names of thermo data from this line
+          if l.contains(&"Step") {
+            for s in l {
+              thermo_keys.push(s);
+              let  v: Vec<f64> = Vec::new();
+              thermo_data.insert(s, v);
+            }
+            read_mode = true;
+            continue;
+          }
+
+          if read_mode {
+            for (i,s) in l.iter().enumerate() {
+              thermo_data.get_array_mut(thermo_keys[i]).unwrap().push(Bson::Double(s.parse().unwrap())); // yea bson is wild
+            }
+          }
+        }
+
+        
+
+      },
+      None => ()
+    };
 
     parent_doc.insert("watch", watch_values);
     parent_doc.insert("files", file_doc);
