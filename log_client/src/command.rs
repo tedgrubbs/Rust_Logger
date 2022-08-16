@@ -47,27 +47,25 @@ impl Command<'_> {
     }
 
     // Get input file directory path and moving to it to ensure logs are stored there
-    let input_file_path = path::Path::new(&input_file_path).to_path_buf();
+    let input_file_path = path::Path::new(&input_file_path).to_path_buf().canonicalize().unwrap();
 
     // Setting our current working directoy to the location of the input lammps file.
-    if input_file_path.parent().unwrap() != path::Path::new("") {
+    // if input_file_path is a directory do not move into parent
+    let change_dir = match input_file_path.is_dir() {
+      true => &input_file_path,
+      false => input_file_path.parent().unwrap()
+    };
 
-      // if input_file_path is a directory do not move into parent
-      let change_dir = match input_file_path.is_dir() {
-        true => &input_file_path,
-        false => input_file_path.parent().unwrap()
-      };
-
-      match env::set_current_dir(change_dir) {
-        Ok(()) => (),
-        Err(error) => match error.kind() {
-          io::ErrorKind::NotFound => {
-            panic!("Directory not found. Try switching your current directory or providing the full absolute path.");
-          },
-          other_error => panic!("Bruh... {:?}", other_error)
-        }
-      };
-    }
+    match env::set_current_dir(change_dir) {
+      Ok(()) => (),
+      Err(error) => match error.kind() {
+        io::ErrorKind::NotFound => {
+          panic!("Directory not found. Try switching your current directory or providing the full absolute path.");
+        },
+        other_error => panic!("Bruh... {:?}", other_error)
+      }
+    };
+    
     println!("Moved to {}", env::current_dir().unwrap().display());
 
     let mut real_string = String::new();
