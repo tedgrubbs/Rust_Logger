@@ -1,5 +1,5 @@
 use hyper::{Request, Body};
-use mongodb::{bson::{Document}, Client, bson::doc};
+use mongodb::{bson::{Document}, Client, bson::doc, options::FindOptions};
 
 
 #[derive(Debug)]
@@ -46,12 +46,25 @@ impl Connection {
     
   }
 
-  pub async fn simple_db_query(client: &Client, field: &str, value: &str, db: &str, collection: &str) -> mongodb::Cursor<Document> {
+  pub async fn simple_db_query(client: &Client, field: &str, value: &str, db: &str, collection: &str, return_all_fields: Option<bool>) -> mongodb::Cursor<Document> {
 
     let filter = doc! {field: value };
-    let db = client.database(db).collection::<Document>(collection);
-    let cursor = db.find(filter, None).await.unwrap();
-    return cursor
+    let db = client.database(db).collection::<Document>(collection);    
+
+    let find_options = match return_all_fields {
+      Some(b) => {
+        if b {
+          FindOptions::builder().projection(doc! { "files": 1 }).build()
+        } else {
+          FindOptions::builder().projection(doc! { "id": 1 }).build()
+
+        }
+      },
+      None => FindOptions::builder().projection(doc! { "id": 1 }).build()
+
+    };
+
+    return db.find(filter, find_options).await.unwrap()
   }
 
 }
