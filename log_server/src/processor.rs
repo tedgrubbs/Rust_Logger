@@ -27,30 +27,180 @@ impl Processor {
 
   
 
-  fn decompress_data(&self, doc: &mut Document) -> io::Result<()> {
+  fn decompress_data(&self, doc: &mut Document, watch_values: &mut Document) -> io::Result<()> {
     
     let mut unzipper = GzDecoder::new(File::open(&self.file_path)?);
     let mut uncompressed: Vec<u8> = Vec::new();
     unzipper.read_to_end(&mut uncompressed)?;
 
     let mut archive = Archive::new(uncompressed.as_slice());
+    let mut watch_schema: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
 
-    let file_exts: Vec<&str> = self.config.get("tracked_files").unwrap().split_whitespace().collect();
-
+    // first, let's get rev and watch files
     for file in archive.entries()? {
       let mut file = file?;
 
       let filename = file.path()?.into_owned().to_str().unwrap().to_string();
       
-      // only insert file if extension is in "tracked_files"
-      for s in &file_exts {
-        if filename.contains(s) || filename.contains(".rev") || filename.contains("watch") {
-          let mut buf = String::new();
-          file.read_to_string(&mut buf)?;
-          doc.insert(filename, buf);
-          break;
+      if filename.contains(".rev") || filename.contains("watch") {
+
+        let mut buf = String::new();
+        file.read_to_string(&mut buf)?;
+
+        if filename.contains("watch") {
+          watch_schema = serde_json::from_str(&buf).unwrap();
+        } 
+
+        doc.insert(filename, buf);
+
+      } 
+    }
+    
+
+    // need get files that rev and watch need
+    let watch_needed_files: Vec<&String> = watch_schema.as_object().unwrap().keys().collect();
+    let mut rev_needed_files: HashMap<String, String> = HashMap::new();
+    utils::read_file_into_hash(doc.get(".rev").unwrap().as_str().unwrap(), None, &mut rev_needed_files)?;
+    let rev_needed_files: Vec<&String> = rev_needed_files.keys().collect();
+    
+    let mut archive = Archive::new(uncompressed.as_slice());
+    for file in archive.entries()? {
+      let mut file = file?;
+
+      let filename = file.path()?.into_owned().to_str().unwrap().to_string();
+      
+      if watch_needed_files.contains(&&filename) || rev_needed_files.contains(&&filename) {
+        let mut buf = String::new();
+        file.read_to_string(&mut buf)?;
+        doc.insert(filename, buf);   
+      } 
+    }
+
+    // Can go through watch schema to get out all desired values
+    // outer loop goes through different files on watch list
+    // middle loops goes through the lines of that file
+    // inner loop checks each line to see if it contains one of the variables we are looking for.
+    for f in watch_schema.as_object().unwrap().keys() {
+
+      let file_contents = doc.get(f).unwrap();
+      // watch_schema[f]["variables"].as_object().unwrap().keys().collect();
+      let mut vars: Vec<&String> = Vec::new();
+      let mut special_vars: Vec<&str> = Vec::new();
+      for v in watch_schema[f]["variables"].as_object().unwrap().keys() {
+        if watch_schema[f]["variables"][v]["type"] == "thermo_log" {
+          special_vars.push(v);
+        } else {
+          vars.push(v);
         }
       }
+
+      // getting the normal variables first
+      for l in file_contents.as_str().unwrap().lines() {
+
+        let line: Vec<&str> = l.split_whitespace().collect();
+
+        for var_name in &vars {
+
+          match line.iter().position(|&x| x == var_name.as_str()) {
+            Some(v) => {
+              let val_pos = v + 1;
+              let var_type = watch_schema[f]["variables"][var_name]["type"].as_str().unwrap();
+
+              match var_type {
+
+                "int" => {
+                  // this will skip occurrences of the watch variable with the wrong type. Kind of a hack for now
+                  let val = line[val_pos].parse::<i64>();
+                  match val {
+                    Ok(v) => { watch_values.insert(var_name.to_string(), v); },
+                    Err(_e) => println!("Incorrect type, skipping")
+                  };
+                },
+                "float" => {
+                  let val: f64  = line[val_pos].parse().unwrap();
+                  watch_values.insert(var_name.to_string(), val);
+                },
+                "long_string" => { // string with spaces
+                  watch_values.insert(var_name.to_string(), line[val_pos..].join(" "));
+                },
+                "string" => {
+                  watch_values.insert(var_name.to_string(), line[val_pos]);
+                },
+                &_ => { // anything is simple string
+                  println!("Error! Invalid watch type {}", var_type);
+                }
+      
+              };
+            },
+            None => (),
+          };
+        }
+      }
+
+      // now getting special variables
+      for svar in special_vars {
+
+        match watch_schema[f]["variables"][svar]["type"].as_str().unwrap() {
+          "thermo_log" => {
+            let mut thermo_keys: Vec<&str> = Vec::new(); // this vec is used to keep the correct order of data
+            let mut thermo_data = Document::new(); //treat like a HashMap<&str, Vec<f64>>
+            let mut read_mode = false;
+            let mut read_count = 0;
+
+            for l in file_contents.as_str().unwrap().lines() {
+
+              let line: Vec<&str> = l.split_whitespace().collect();
+
+              // need to know when to stop. So will break when we no longer find numbers
+              // can clear out vec and doc to use for other runs
+              if read_mode {
+                match line[0].parse::<f64>() {
+                  Ok(_) => (),
+                  Err(_) => {
+                    let mut doc_key = "thermo_data_".to_string();
+                    doc_key.push_str(&read_count.to_string());
+                    watch_values.insert(doc_key.as_str(), thermo_data.clone());
+                    thermo_keys.clear();
+                    thermo_data.clear();
+                    read_mode = false;
+                    read_count += 1;
+                  }
+                };
+              }
+
+              // thermo data begins with "step". should get names of thermo data from this line
+              if l.contains(&"Step") {
+                for s in line {
+                  thermo_keys.push(s);
+                  let  v: Vec<f64> = Vec::new();
+                  thermo_data.insert(s, v);
+                }
+                read_mode = true;
+                continue;
+              }
+
+              if read_mode {
+                for (i,s) in line.iter().enumerate() {
+                  thermo_data.get_array_mut(thermo_keys[i]).unwrap().push(Bson::Double(s.parse().unwrap())); // yea bson is wild
+                }
+              }
+
+            }
+          },
+
+          &_ => panic!("Unknown special variable")
+
+        };
+
+        
+      }
+
+
+      // just remove files not marked for uploading
+      if watch_schema[f]["upload"].as_i64().unwrap() == 0 {
+        doc.remove(f);
+      }
+
     }
 
     Ok(())
@@ -136,7 +286,9 @@ impl Processor {
     
     // Decompressing file and getting tracked and .rev files
     let mut file_doc = Document::new();
-    self.decompress_data(&mut file_doc).expect("Decompression failed");
+    let mut watch_values = Document::new();
+
+    self.decompress_data(&mut file_doc, &mut watch_values).expect("Decompression failed");
     let mut rev_file_hash = HashMap::new();
     utils::read_file_into_hash(file_doc.get(".rev").unwrap().as_str().unwrap(), None, &mut rev_file_hash)?;
     parent_doc.insert("id", rev_file_hash.get("id").unwrap());
@@ -145,113 +297,6 @@ impl Processor {
     // Calculating diffed files
     let mut diffs = Document::new();
     self.get_file_diffs(&mut diffs, &file_doc, rev_file_hash, db_name, coll_name).await?;
-
-    
-
-    // Getting all desired values from files
-    let mut watch_schema: HashMap<String, String> = HashMap::new();
-    utils::read_file_into_hash(file_doc.get("watch").unwrap().as_str().unwrap(), None, &mut watch_schema)?;
-
-    let mut watch_values = Document::new();
-
-    for (file,contents) in &file_doc {
-
-      if file == "watch" { continue; } // skipping watch file
-
-      for line in contents.as_str().unwrap().lines() {
-        let l: Vec<&str> = line.split_whitespace().collect();
-
-        for (watch_name, watch_type) in &watch_schema {
-          if l.contains(&watch_name.as_str()) {
-
-            let val_pos = l.iter().position(|&x| x == watch_name).unwrap() + 1;
-
-            match watch_type.as_str() {
-              "int" => {
-                // this will skip occurrences of the watch variable with the wrong type. Kind of a hack for now
-                let val = l[val_pos].parse::<i64>();
-                match val {
-                  Ok(v) => { watch_values.insert(watch_name.to_string(), v); },
-                  Err(_e) => println!("Incorrect type, skipping")
-                };
-                
-              },
-              "float" => {
-                let val: f64  = l[val_pos].parse().unwrap();
-                watch_values.insert(watch_name.to_string(), val);
-              },
-              "long_string" => { // string with spaces
-                watch_values.insert(watch_name.to_string(), l[val_pos..].join(" "));
-              },
-              "string" => {
-                watch_values.insert(watch_name.to_string(), l[val_pos]);
-              },
-              &_ => { // anything is simple string
-                println!("Error! Invalid watch type {}", watch_type);
-              }
-
-            };
-            
-
-          }
-        }
-      }
-    }
-
-    // get thermo log data
-    match watch_schema.get("thermo") {
-      Some(_) => {
-
-        let f = file_doc.get("log.lammps").unwrap().as_str().unwrap(); // assuming for now log file is just "log.lammps"
-        let mut thermo_keys: Vec<&str> = Vec::new(); // this vec is used to keep the correct order of data
-        let mut thermo_data = Document::new(); //HashMap<&str, Vec<f64>> = HashMap::new();
-        let mut read_mode = false;
-        let mut read_count = 0;
-
-        for line in f.lines() {
-
-          let l: Vec<&str> = line.split_whitespace().collect();
-
-          // need to know when to stop. So will break when we no longer find numbers
-          // can clear out vec and doc to use for other runs
-          if read_mode {
-            match l[0].parse::<f64>() {
-              Ok(_) => (),
-              Err(_) => {
-                let mut doc_key = "thermo_data_".to_string();
-                doc_key.push_str(&read_count.to_string());
-                watch_values.insert(doc_key.as_str(), thermo_data.clone());
-                thermo_keys.clear();
-                thermo_data.clear();
-                read_mode = false;
-                read_count += 1;
-              }
-            };
-          }
-
-          // thermo data begins with "step". should get names of thermo data from this line
-          if l.contains(&"Step") {
-            for s in l {
-              thermo_keys.push(s);
-              let  v: Vec<f64> = Vec::new();
-              thermo_data.insert(s, v);
-            }
-            read_mode = true;
-            continue;
-          }
-
-          if read_mode {
-            for (i,s) in l.iter().enumerate() {
-              thermo_data.get_array_mut(thermo_keys[i]).unwrap().push(Bson::Double(s.parse().unwrap())); // yea bson is wild
-            }
-          }
-        }
-
-        
-
-      },
-      None => ()
-    };
 
     parent_doc.insert("watch", watch_values);
     parent_doc.insert("files", file_doc);
