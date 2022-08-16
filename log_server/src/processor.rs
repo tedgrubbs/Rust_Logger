@@ -62,6 +62,8 @@ impl Processor {
     let mut rev_needed_files: HashMap<String, String> = HashMap::new();
     utils::read_file_into_hash(doc.get(".rev").unwrap().as_str().unwrap(), None, &mut rev_needed_files)?;
     let rev_needed_files: Vec<&String> = rev_needed_files.keys().collect();
+
+    let get_dump_files = watch_needed_files.contains(&&"dump".to_string());
     
     let mut archive = Archive::new(uncompressed.as_slice());
     for file in archive.entries()? {
@@ -69,10 +71,14 @@ impl Processor {
 
       let filename = file.path()?.into_owned().to_str().unwrap().to_string();
       
-      if watch_needed_files.contains(&&filename) || rev_needed_files.contains(&&filename) {
+      if watch_needed_files.contains(&&filename) || 
+      rev_needed_files.contains(&&filename) || 
+      (get_dump_files && filename.contains("dump")) {
+
         let mut buf = String::new();
         file.read_to_string(&mut buf)?;
         doc.insert(filename, buf);   
+
       } 
     }
 
@@ -81,6 +87,8 @@ impl Processor {
     // middle loops goes through the lines of that file
     // inner loop checks each line to see if it contains one of the variables we are looking for.
     for f in watch_schema.as_object().unwrap().keys() {
+
+      if f.contains("dump") { continue; } // skip dump files here bc these are not normal
 
       let file_contents = doc.get(f).unwrap();
       // watch_schema[f]["variables"].as_object().unwrap().keys().collect();
@@ -202,6 +210,98 @@ impl Processor {
       }
 
     }
+
+    // this marks dump files for removal from the doc
+    let mut dump_removal: Vec<String> = Vec::new();
+    
+    // parse dump files
+    if get_dump_files  && watch_schema["dump"]["parse"] != 0 {
+      for f in doc.keys() {
+        if f.contains("dump") {
+
+          let file_contents = doc.get(f).unwrap();
+          dump_removal.push(f.to_string());
+          let mut dump_data = Document::new();
+          let mut lines = file_contents.as_str().unwrap().lines().peekable();
+          let mut timestep: &str = "0";
+
+          loop {
+
+            let line = match lines.next() {
+              Some(l) => l,
+              None => break
+            };
+
+            // stopping main loop only on ITEMs
+            if !line.contains("ITEM:"){ continue; }
+            let line: Vec<&str> = line.split("ITEM:").collect();
+
+            // i'm assuming that the ITEM name is all caps
+            // everything else is extra parameters
+            let mut item = String::new();
+            for c in line[1].chars() {
+              if c.is_lowercase() {
+                break;
+              } else {
+                item.push(c);
+              }
+            }
+            let item = item.trim();
+
+            let params: Vec<&str> = line[1].split(&item).collect();
+            let params: Vec<&str> = params[1].split_whitespace().collect();
+
+            if item.contains("TIMESTEP") {
+              
+              timestep = lines.next().unwrap();
+              dump_data.insert(timestep, Document::new());
+              continue;
+
+            } else if params.len() > 0 { // assuming this will be a new subdocument
+
+              dump_data.get_document_mut(timestep).unwrap().insert(item, Document::new());
+
+            } else { // no params assuming that this something with a single line of info like "NUMBER OF ATOMS"
+
+              dump_data.get_document_mut(timestep).unwrap().insert(item, lines.next().unwrap().parse::<f64>().unwrap());
+              continue;
+
+            }
+
+            let mut sub_doc_count = 0;
+            // if you are here then you have potentially several more lines of data
+            loop {
+
+              // peek ahead to see if we have an ITEM line
+              match lines.peek() {
+                Some(l) => {
+                  if l.contains("ITEM:") { break; }
+                },
+                None => {
+                  break;
+                }
+              };
+
+              let l: Vec<&str> = lines.next().unwrap().split_whitespace().collect();
+              let mut sub_doc = Document::new();
+              for (i,line_item) in l.iter().enumerate() {
+                sub_doc.insert(params[i].to_string(), line_item.parse::<f64>().unwrap());
+              }
+              dump_data.get_document_mut(timestep).unwrap().get_document_mut(&item).unwrap().insert(sub_doc_count.to_string(), sub_doc);
+              sub_doc_count +=1 ;
+            }
+
+          }
+          watch_values.insert(f, dump_data);
+        }
+      }
+
+      for f in dump_removal {
+        doc.remove(f);
+      }
+
+    }
+    
 
     Ok(())
   }
