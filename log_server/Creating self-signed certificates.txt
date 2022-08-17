@@ -20,3 +20,6 @@ Done
 
 
 If installing to a webserver, may want to use actual tls cert from something like letsencrypt. In the case the relevant files can be found in /etc/letsencrypt/live/<domain name>/.
+For my server config the relevant entries look like this:
+cert_path /etc/letsencrypt/live/taylorgrubbs.online/fullchain.pem
+key_path /etc/letsencrypt/live/taylorgrubbs.online/privkey.pem
