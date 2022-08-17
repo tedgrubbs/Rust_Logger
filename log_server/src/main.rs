@@ -312,16 +312,31 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
       let files = fs::read_dir(CONFIG.get("data_path").unwrap()).unwrap();
       let mut result_string = String::new();
-      
+      let database = client.database(CONFIG.get("database").unwrap());
+
+      // for each file need to check every collection to see if it exists
+      // if it doesn't then we delete it
       for f in files {
+
         let filepath = f.as_ref().unwrap().path().into_os_string();
-        let v: Vec<_> = Connection::simple_db_query(&client, "upload_path", filepath.to_str().unwrap(), CONFIG.get("database").unwrap(), &conn.collection, None).await.collect().await;
-        if v.len() == 0 {
+        let mut in_database = false;
+
+        for collection in database.list_collection_names(None).await.unwrap() {
+          let v: Vec<_> = Connection::simple_db_query(&client, "upload_path", filepath.to_str().unwrap(), CONFIG.get("database").unwrap(), &collection, None).await.collect().await;
+          if v.len() != 0 {
+            in_database = true;
+            break;
+          }
+        }
+
+        if !in_database  {
           result_string.push_str(filepath.to_str().unwrap());
           result_string.push('\n');
-          fs::remove_file(f.unwrap().path()).unwrap();
+          fs::remove_file(filepath).unwrap();
         }
+        
       }
+      
 
       *response.body_mut() = Body::from(result_string);
     }
