@@ -36,13 +36,13 @@ impl Processor {
     let mut archive = Archive::new(uncompressed.as_slice());
     let mut watch_schema: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
 
-    // first, let's get rev and watch files
+    // first, let's get REV and watch files
     for file in archive.entries()? {
       let mut file = file?;
 
       let filename = file.path()?.into_owned().to_str().unwrap().to_string();
       
-      if filename.contains(".rev") || filename.contains("watch") {
+      if filename.contains("REV") || filename.contains("watch") {
 
         let mut buf = String::new();
         file.read_to_string(&mut buf)?;
@@ -57,10 +57,10 @@ impl Processor {
     }
     
 
-    // need get files that rev and watch need
+    // need get files that REV and watch need
     let watch_needed_files: Vec<&String> = watch_schema.as_object().unwrap().keys().collect();
     let mut rev_needed_files: HashMap<String, String> = HashMap::new();
-    utils::read_file_into_hash(doc.get(".rev").unwrap().as_str().unwrap(), None, &mut rev_needed_files)?;
+    utils::read_file_into_hash(doc.get("REV").unwrap().as_str().unwrap(), None, &mut rev_needed_files)?;
     let rev_needed_files: Vec<&String> = rev_needed_files.keys().collect();
 
     let get_dump_files = watch_needed_files.contains(&&"dump".to_string());
@@ -311,7 +311,7 @@ impl Processor {
     let parent_id = rev_file_hash.get("parent_id").unwrap();  
     if parent_id != "*" {
 
-      // get parent rev hash
+      // get parent REV hash
       let mut res = Connection::simple_db_query(&self.db_client, "id", parent_id, db_name, coll_name, Some(true)).await;
 
       // checks for case where parent id no longer exists
@@ -323,7 +323,7 @@ impl Processor {
         }
       };
 
-      let parent_rev = parent.get("files").unwrap().as_document().unwrap().get(".rev").unwrap().as_str().unwrap();
+      let parent_rev = parent.get("files").unwrap().as_document().unwrap().get("REV").unwrap().as_str().unwrap();
       let mut parent_hash = HashMap::new();
       utils::read_file_into_hash(&parent_rev, None, &mut parent_hash).unwrap();
 
@@ -384,13 +384,13 @@ impl Processor {
     parent_doc.insert("upload_path", &self.file_path);
     parent_doc.insert("upload_time", chrono::offset::Utc::now());
     
-    // Decompressing file and getting tracked and .rev files
+    // Decompressing file and getting tracked and REV files
     let mut file_doc = Document::new();
     let mut watch_values = Document::new();
 
     self.decompress_data(&mut file_doc, &mut watch_values).expect("Decompression failed");
     let mut rev_file_hash = HashMap::new();
-    utils::read_file_into_hash(file_doc.get(".rev").unwrap().as_str().unwrap(), None, &mut rev_file_hash)?;
+    utils::read_file_into_hash(file_doc.get("REV").unwrap().as_str().unwrap(), None, &mut rev_file_hash)?;
     parent_doc.insert("id", rev_file_hash.get("id").unwrap());
     parent_doc.insert("parent_id", rev_file_hash.get("parent_id").unwrap());
 

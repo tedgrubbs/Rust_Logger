@@ -17,8 +17,8 @@ pub struct Command<'a> {
   input_file_path: path::PathBuf, // location of lammps input file or directory
   file_types: Vec<&'a str>, // allowed input filetypes 
   curr_file_hashes: HashMap<String,String>, // stores hashes of files  currently in directory
-  record_file_hashes: HashMap<String,String>, // stores hashes of files found in rev file
-  pub needs_update: bool // whether or not the rev file needs to be updated
+  record_file_hashes: HashMap<String,String>, // stores hashes of files found in REV file
+  pub needs_update: bool // whether or not the REV file needs to be updated
 }
 
 // data passed to User
@@ -151,7 +151,7 @@ impl Command<'_> {
 
   fn get_record_filehashes(&mut self)  {
     self.record_file_hashes.clear();
-    utils::read_file_into_hash(".rev", None, &mut self.record_file_hashes).unwrap();
+    utils::read_file_into_hash("REV", None, &mut self.record_file_hashes).unwrap();
   }
 
   pub fn update_record(&mut self) {
@@ -168,7 +168,7 @@ impl Command<'_> {
     let mut filenames: Vec<&String> = self.curr_file_hashes.keys().collect();
     filenames.sort();
 
-    let mut rev_file = fs::File::create(".rev")?;
+    let mut rev_file = fs::File::create("REV")?;
 
     for f in filenames {
       rev_file.write_all(f.as_bytes())?;
@@ -190,9 +190,9 @@ impl Command<'_> {
 
     self.get_current_filehashes().unwrap();
 
-    // if .rev file exists, get those recorded hashes, otherwise need to create it
-    // will return immediately after creating new rev file
-    if path::Path::new(".rev").exists() {
+    // if REV file exists, get those recorded hashes, otherwise need to create it
+    // will return immediately after creating new REV file
+    if path::Path::new("REV").exists() {
       self.get_record_filehashes();
 
       // can now check if there are any discrepencies between recorded and current filehashes
@@ -204,7 +204,7 @@ impl Command<'_> {
       }
 
     } else {
-      println!("No .rev file found, creating a new one");
+      println!("No REV file found, creating a new one");
       self.update_rev_file(None).unwrap();
       self.get_record_filehashes();
     }

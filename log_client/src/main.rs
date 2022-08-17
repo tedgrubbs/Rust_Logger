@@ -43,7 +43,7 @@ fn main() {
       println!("Record exists, can update");
       cmd.update_record()
     } else {
-      panic!("Error: Current record not found, revert changes and upload again");
+      panic!("Error: Previous record not found in database, revert changes or delete REV file to create a new branch");
     }
     
   }
