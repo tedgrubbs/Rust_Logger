@@ -143,7 +143,14 @@ impl Command<'_> {
       }
     }
     let final_hash = final_hasher.finalize();
-    self.curr_file_hashes.insert("id".to_string(), hex::encode(final_hash)[..HASH_TRUNCATE_LENGTH].to_string());
+
+    // combining hash with directory (collection) name to give full id. 
+    let mut total_id = String::new();
+    total_id.push_str(env::current_dir().unwrap().file_name().unwrap().to_str().unwrap());
+    total_id.push_str(":");
+    total_id.push_str(&hex::encode(final_hash)[..HASH_TRUNCATE_LENGTH].to_string());
+
+    self.curr_file_hashes.insert("id".to_string(), total_id);
 
     Ok(())
   }

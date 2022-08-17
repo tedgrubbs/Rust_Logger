@@ -290,7 +290,9 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
       };
 
       // checking if record id already exists in database
-      let v: Vec<_> = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.collect().await;
+      let coll = conn.filehash.split(':').next().unwrap(); // get collection name from id
+
+      let v: Vec<_> = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), coll, None).await.collect().await;
       if v.len() > 0 {
         response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("1").unwrap());
       } else {

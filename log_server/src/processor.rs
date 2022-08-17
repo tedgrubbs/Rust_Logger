@@ -306,13 +306,15 @@ impl Processor {
     Ok(())
   }
 
-  async fn get_file_diffs(&self, diffs:&mut Document, file_doc: &Document, rev_file_hash: HashMap<String, String>, db_name: &str, coll_name: &str) -> std::result::Result<(), mongodb::error::Error> {
+  async fn get_file_diffs(&self, diffs:&mut Document, file_doc: &Document, rev_file_hash: HashMap<String, String>, db_name: &str) -> std::result::Result<(), mongodb::error::Error> {
     // first getting entry whose id matches the new parent id
     let parent_id = rev_file_hash.get("parent_id").unwrap();  
+    let coll = parent_id.split(':').next().unwrap();
+    
     if parent_id != "*" {
 
       // get parent REV hash
-      let mut res = Connection::simple_db_query(&self.db_client, "id", parent_id, db_name, coll_name, Some(true)).await;
+      let mut res = Connection::simple_db_query(&self.db_client, "id", parent_id, db_name, coll, Some(true)).await;
 
       // checks for case where parent id no longer exists
       let parent = match res.try_next().await? {
@@ -396,7 +398,7 @@ impl Processor {
 
     // Calculating diffed files
     let mut diffs = Document::new();
-    self.get_file_diffs(&mut diffs, &file_doc, rev_file_hash, db_name, coll_name).await?;
+    self.get_file_diffs(&mut diffs, &file_doc, rev_file_hash, db_name).await?;
 
     parent_doc.insert("watch", watch_values);
     parent_doc.insert("files", file_doc);
