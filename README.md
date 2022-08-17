@@ -1,14 +1,25 @@
 # Rust_Logger 
+
 ## A git-like utility for easily tracking file changes
 
 My past experiences with computational experiments - in AI, physics, engineering, etc - have shown that it is very easy to lose track of what things have changed in your configs, code, or input data. At the start of a new moloecular dynamics project in mid-2022 I have decided that it is worth investing some time into creating a system which can effortlessly log any changes that might occur in a project.
 
 You might ask "well why not use git?". You certainly could use git to track these types of changes but git is more meant for more significant code-base changes that are more or less permanent. In computational science you might want to only change 1 or 2 variables and see how that changes the result. This can quickly generate thousands of git commits that would be impossible to keep track of or analyze using vanilla git or github. As computational scientists we need to easily visualize the relationships between potentially thousands or millions of experimental inputs and outputs. This is what has motivated the current project.
 
-## How it works
+## Contents
+
+- [Rust_Logger](#rust_logger)
+  - [A git-like utility for easily tracking file changes](#a-git-like-utility-for-easily-tracking-file-changes)
+  - [Contents](#contents)
+  - [How it works](#how-it-works)
+  - [How it works - an example](#how-it-works---an-example)
+  - [Setup - MongoDB](#setup---mongodb)
+  - [Setup - Log_Server](#setup---log_server)
+
+## How it works 
 The current system is broken into 2 parts - the `log_client` and `log_server`. `log_client` is a utility for users or automated programs to upload results to the `log_server`. The `log_server` is a webserver+database combo that receives data from the `log_client` and inserts it into a local MongoDB database. The communication between the client and server is encrypted via TLS to maintain confidentiality.
 
-## How it works - an example
+## How it works - an example 
 Once you have `log_server` set up somewhere and all the database/configuration settings are appropriately set, we can now begin using the `log_client`. 
 
 The `log_client` manifests itself as a command-line tool called `log`. We first need to generate an account with our database. This account registration is triggered automatically the first time you use `log`:
@@ -61,4 +72,17 @@ This will just upload the directory without running any other external programs.
 
 We see the equivalent of a git diff of the file and see that `"# an extra line"` was added to the file.
 
->*This summarizes the basic functionality of the Rust_Logger. It is still a work in progress. It is not enough to know the changes of our files, we also need to track certain quantities that we want to measure like maybe energy, conductivity, etc. Soon the logger config will have options to tell it what specific quantities should be retrieved from the input/output files. This will allow for easier analysis on simulation inputs/outputs.*
+>*This summarizes the basic functionality of the Rust_Logger. It is not enough to know the changes of our files, we also need to track certain quantities that we want to measure like maybe energy, conductivity, etc. This is explained in another part of the documentation*
+
+## Setup - MongoDB
+Rust_Logger depends on a MongoDB database for it's backed. Currently this database must be installed and configured manually by you, the user. However, this does not require much work. We only need to set up a Mongo server with basic authentication settings. 
+
+The MongoDB documentation is very good and can be found at the following links:
+
+- Installation on Ubuntu: https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/
+- Authentication setup: https://www.mongodb.com/docs/manual/tutorial/configure-scram-client-authentication/
+- (optional) Security checklist: https://www.mongodb.com/docs/manual/administration/security-checklist/
+
+The above links should be enough to setup a Mongo database for our purposes. Be sure to choose a good password for your admin user. This is needed later on.
+
+## Setup - Log_Server
