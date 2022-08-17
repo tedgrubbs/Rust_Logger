@@ -2,7 +2,8 @@ The below command will create a new cert/key pair for a TLS server. You only nee
 
 openssl req -newkey rsa:4096 -x509 -sha256 -days 365 -nodes -out myserver.crt -keyout myserver.key
 
-For Rustls/hyper server need to make sure key file starts/ends with "RSA PRIVATE KEY"
+For Rustls/hyper server need to make sure key file matches rustls_pemfile loading function. 
+IE: BEGIN PRIVATE KEY means this is a PKCS8 key and should be loaded with rustls_pemfile::pkcs8_private_keys.
 
 
 
@@ -15,3 +16,7 @@ dpkg-reconfigure ca-certificates
 Add new cert file from list.
 
 Done 
+
+
+
+If installing to a webserver, may want to use actual tls cert from something like letsencrypt. In the case the relevant files can be found in /etc/letsencrypt/live/<domain name>/.

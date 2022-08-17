@@ -414,7 +414,7 @@ fn load_private_key(filename: &str) -> io::Result<rustls::PrivateKey> {
   let mut reader = io::BufReader::new(keyfile);
 
   // Load and return a single private key.
-  let keys = rustls_pemfile::rsa_private_keys(&mut reader)
+  let keys = rustls_pemfile::pkcs8_private_keys(&mut reader)
     .map_err(|_| error("failed to load private key".into()))?;
   if keys.len() != 1 {
     return Err(error("expected a single private key".into()));
