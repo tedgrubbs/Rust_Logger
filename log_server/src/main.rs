@@ -247,7 +247,7 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
       };
 
       // checking if file already exists in database
-      let v: Vec<_> = Connection::simple_db_query(&client, "upload_hash", &conn.filehash, CONFIG.get("database").unwrap(), CONFIG.get("registry").unwrap(), None).await.collect().await;
+      let v: Vec<_> = Connection::simple_db_query(&client, "upload_hash", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.collect().await;
       if v.len() > 0 {
         return set_response_error(response, "File already exists cancelling upload".to_string());
       }
@@ -290,7 +290,7 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
       };
 
       // checking if record id already exists in database
-      let v: Vec<_> = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), CONFIG.get("registry").unwrap(), None).await.collect().await;
+      let v: Vec<_> = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.collect().await;
       if v.len() > 0 {
         response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("1").unwrap());
       } else {
@@ -315,7 +315,7 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
       
       for f in files {
         let filepath = f.as_ref().unwrap().path().into_os_string();
-        let v: Vec<_> = Connection::simple_db_query(&client, "upload_path", filepath.to_str().unwrap(), CONFIG.get("database").unwrap(), CONFIG.get("registry").unwrap(), None).await.collect().await;
+        let v: Vec<_> = Connection::simple_db_query(&client, "upload_path", filepath.to_str().unwrap(), CONFIG.get("database").unwrap(), &conn.collection, None).await.collect().await;
         if v.len() == 0 {
           result_string.push_str(filepath.to_str().unwrap());
           result_string.push('\n');

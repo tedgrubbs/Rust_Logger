@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::{env, io, path, process, fs};
 use std::io::{Write, Read};
 use sha2::{Sha256, Digest};
@@ -15,13 +16,15 @@ pub struct Command<'a> {
   cmd_string: String, // full command for Lammps
   input_file_path: path::PathBuf, // location of lammps input file or directory
   file_types: Vec<&'a str>, // allowed input filetypes 
-  curr_file_hashes: HashMap<String,String>,
-  record_file_hashes: HashMap<String,String>,
-  pub needs_update: bool
+  curr_file_hashes: HashMap<String,String>, // stores hashes of files  currently in directory
+  record_file_hashes: HashMap<String,String>, // stores hashes of files found in rev file
+  pub needs_update: bool // whether or not the rev file needs to be updated
 }
 
+// data passed to User
 pub struct OutputInfo {
-  pub filename: Option<String>,
+  pub filename: Option<String>, 
+  pub input_directory: OsString, // bottom directory name
   pub hash: Option<String>,
   pub compressed_dir: Option<Vec<u8>>,
   pub record_file_hash: Option<String>,
@@ -208,6 +211,7 @@ impl Command<'_> {
 
     let basic_info = OutputInfo {
       filename: None,
+      input_directory: env::current_dir().unwrap().file_name().unwrap().to_os_string(),
       hash: None,
       compressed_dir: None,
       record_file_hash: Some(self.record_file_hashes.get("id").unwrap().to_string())
@@ -261,6 +265,7 @@ impl Command<'_> {
 
     let command_outputs = OutputInfo {
       filename: Some(output_filename),
+      input_directory: env::current_dir().unwrap().file_name().unwrap().to_os_string(),
       hash: Some(hex::encode(hash)),
       compressed_dir: Some(compressed_data),
       record_file_hash: None

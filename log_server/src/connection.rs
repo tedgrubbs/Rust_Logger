@@ -7,6 +7,7 @@ pub struct Connection {
   pub username: String,
   pub password: String,
   pub filename: String,
+  pub collection: String,
   pub filehash: String
 }
 
@@ -35,11 +36,17 @@ impl Connection {
       None => String::new()
     };
 
+    let collection = match headers.get("collection") {
+      Some(k) => String::from(k.to_str().unwrap()),
+      None => String::new()
+    };
+
     Ok (
       Connection {
         username,
         password,
         filename,
+        collection,
         filehash
       }
     )

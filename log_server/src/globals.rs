@@ -11,14 +11,13 @@ pub struct Globals {
 
 impl Globals {
 
-  const ALLOWED_SERVER_OPTIONS: [&'static str; 6] = [
+  const ALLOWED_SERVER_OPTIONS: [&'static str; 5] = [
       "server_port",
       "cert_path", 
       "key_path", 
       "data_path", 
-      "database", 
-      "registry"
-    ];
+      "database"
+  ];
 
   pub fn new() -> Globals {
 

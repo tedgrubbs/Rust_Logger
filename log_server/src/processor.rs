@@ -376,7 +376,7 @@ impl Processor {
     
     let mut parent_doc = Document::new();
     let db_name = self.config.get("database").unwrap();
-    let coll_name = self.config.get("registry").unwrap();
+    let coll_name = &self.conn.collection;
 
     // inserting general upload metadata
     parent_doc.insert("upload_hash", &self.conn.filehash);

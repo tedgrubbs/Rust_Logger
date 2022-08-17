@@ -117,6 +117,9 @@ impl User {
     let req = match file_info {
       None => req.body(Body::from("")).unwrap(),
       Some(f) => {
+
+        let req = req.header("collection", f.input_directory.to_str().unwrap());
+
         match endpoint {
           // can just reuse the filehash header for this
           Endpoint::ID_CHECK => {
