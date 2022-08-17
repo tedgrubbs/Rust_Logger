@@ -14,7 +14,9 @@ You might ask "well why not use git?". You certainly could use git to track thes
   - [How it works](#how-it-works)
   - [How it works - an example](#how-it-works---an-example)
   - [Setup - MongoDB](#setup---mongodb)
-  - [Setup - Log_Server](#setup---log_server)
+  - [Setup - log_server: Prerequisite TLS](#setup---log_server-prerequisite-tls)
+  - [Setup - log_server](#setup---log_server)
+  - [Setup - log_server config](#setup---log_server-config)
 
 ## How it works 
 The current system is broken into 2 parts - the `log_client` and `log_server`. `log_client` is a utility for users or automated programs to upload results to the `log_server`. The `log_server` is a webserver+database combo that receives data from the `log_client` and inserts it into a local MongoDB database. The communication between the client and server is encrypted via TLS to maintain confidentiality.
@@ -85,4 +87,29 @@ The MongoDB documentation is very good and can be found at the following links:
 
 The above links should be enough to setup a Mongo database for our purposes. Be sure to choose a good password for your admin user. This is needed later on.
 
-## Setup - Log_Server
+## Setup - log_server: Prerequisite TLS
+I will now describe the setup process of the `log_server`. `log_server` communicates with a `log_client` through http communication secured with TLS. This requires that the system running `log_server` contain an unexpired, valid TLS certificate. 
+
+Now if you are running `log_server` on a local network you will need to create a self-signed certificate and manually add the certificate to all client machines' trusted lists. I describe how to do this in `log_server/Creating self-signed certificates.txt` but you can also find plenty of manuals on how to do this online. 
+
+If however you are running the server on a internet-accessible server, then you likely already have a valid TLS certificate provided by an organization like Let's Encrypt (https://letsencrypt.org/). You can then use this certificate and not have to worry about modifying your clients' trust lists. 
+
+## Setup - log_server
+Installing the `log_server` is quite trivial. Just run the install script at `log_server/install.sh`:
+
+![Alt text](imgs/server_install.png)
+
+This will install the executable `tls_server` to `/usr/bin/` and attempt to start the service as `log_server.service`. It will of course fail because it does not know where your TLS certificates are located.
+
+## Setup - log_server config
+As the printed install messages indicate, you must first set up the server config. This will be located in a new hidden folder in your home directory called `.log_server/config`. It looks like this:
+
+![Alt text](imgs/server_config_example.png)
+
+Not much going on there. The options are pretty self-explanatory but I will explain them here:
+
+- `server_port` - The port where your server will listen for http requests from clients. Could be anything you want but probably want it above 1023 to avoid colliding with the [Well-known ports](https://en.wikipedia.org/wiki/List_of_TCP_and_UDP_port_numbers#Well-known_ports).
+- `cert_path` - Location of TLS certificate. Point to wherever your self-signed crt file is located - or if have a certificate from Lets Encrypt yours will be at `/etc/letsencrypt/live/<your domain name>/fullchain.pem`.
+- `key_path` - Location of TLS private key. Point to wherever your self-signed key file is located - or if have a certificate from Lets Encrypt yours will be at `/etc/letsencrypt/live/<your domain name>/privkey.pem`.
+- `data_path` - Location where uploaded files will be stored on disk. The default location should be fine.
+- `database` - Name of the MongoDB database that the server will create for you. This also can be anything you want. 
