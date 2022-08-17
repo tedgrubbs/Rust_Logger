@@ -17,6 +17,9 @@ You might ask "well why not use git?". You certainly could use git to track thes
   - [Setup - log_server: Prerequisite TLS](#setup---log_server-prerequisite-tls)
   - [Setup - log_server](#setup---log_server)
   - [Setup - log_server config](#setup---log_server-config)
+  - [Setup - log_client](#setup---log_client)
+  - [Setup - log_client config](#setup---log_client-config)
+  - [How it works - Redux](#how-it-works---redux)
 
 ## How it works 
 The current system is broken into 2 parts - the `log_client` and `log_server`. `log_client` is a utility for users or automated programs to upload results to the `log_server`. The `log_server` is a webserver+database combo that receives data from the `log_client` and inserts it into a local MongoDB database. The communication between the client and server is encrypted via TLS to maintain confidentiality.
@@ -113,3 +116,29 @@ Not much going on there. The options are pretty self-explanatory but I will expl
 - `key_path` - Location of TLS private key. Point to wherever your self-signed key file is located - or if have a certificate from Lets Encrypt yours will be at `/etc/letsencrypt/live/<your domain name>/privkey.pem`.
 - `data_path` - Location where uploaded files will be stored on disk. The default location should be fine.
 - `database` - Name of the MongoDB database that the server will create for you. This also can be anything you want. 
+
+After this is properly set up we can start the service with systemctl:
+
+![Alt text](imgs/service_startup.png)
+
+## Setup - log_client
+With a server now running we can now move to setting up a `log_client`. This is considerably simpler since there are no prequisites or services running. Again here there is also a `install.sh` script- but this time in the `log_client/` folder:
+
+![Alt text](imgs/client_install.png)
+
+Considerably less flashy than the server install. 
+
+## Setup - log_client config
+This also installs a config to a hidden folder in the home folder at `~/.log/config`:
+
+![Alt text](imgs/client_config.png)
+
+Even more boring than the server config!
+
+- `Username` - The username that will register this machine with the server. Set it to whatever you want
+- `Server` - This is the site + port of the machine  where the `log_server` is running. So if the server was running at example.com on port 1241 I would put `example.com:1241` here.
+- `tracked_files` - This denotes a list of filetypes that `log_client` should monitor for changes. This can be a file extension, file prefix, or just some common substring found in your files. Different types are separated by spaces so to track multiple files this would look like "`tracked_files .log .txt .csv`"
+
+This covers the basic setup required for Rust_Logger to operate. You should now be able to run examples like the one shown earlier in [How it works - an example](#how-it-works---an-example).
+
+## How it works - Redux

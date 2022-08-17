@@ -4,7 +4,7 @@ INSTALL_DIR="/usr/bin"
 EXECUTABLE="log"
 CONFIG_DIR=".log"
 
-config='Username Moscow\nServer localhost:1241'
+config='Username tayg\nServer localhost:1241'
 
 config_path=$HOME/$CONFIG_DIR/config
 
