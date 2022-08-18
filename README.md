@@ -12,72 +12,23 @@ You might ask "well why not use git?". You certainly could use git to track thes
   - [A git-like utility for easily tracking file changes](#a-git-like-utility-for-easily-tracking-file-changes)
   - [Contents](#contents)
   - [How it works](#how-it-works)
-  - [How it works - an example](#how-it-works---an-example)
   - [Setup - MongoDB](#setup---mongodb)
   - [Setup - log_server: Prerequisite TLS](#setup---log_server-prerequisite-tls)
   - [Setup - log_server](#setup---log_server)
   - [Setup - log_server config](#setup---log_server-config)
   - [Setup - log_client](#setup---log_client)
   - [Setup - log_client config](#setup---log_client-config)
-  - [How it works - Redux](#how-it-works---redux)
+  - [`log` - the command-line utility](#log---the-command-line-utility)
+  - [`log` - registration](#log---registration)
+    - [Usage:](#usage)
+  - [`log` - upload](#log---upload)
+    - [Usage:](#usage-1)
+  - [Example](#example)
+  - [`log` - `watch` file](#log---watch-file)
+  - [`log` - `dump` files](#log---dump-files)
 
 ## How it works 
 The current system is broken into 2 parts - the `log_client` and `log_server`. `log_client` is a utility for users or automated programs to upload results to the `log_server`. The `log_server` is a webserver+database combo that receives data from the `log_client` and inserts it into a local MongoDB database. The communication between the client and server is encrypted via TLS to maintain confidentiality.
-
-## How it works - an example 
-Once you have `log_server` set up somewhere and all the database/configuration settings are appropriately set, we can now begin using the `log_client`. 
-
-The `log_client` manifests itself as a command-line tool called `log`. We first need to generate an account with our database. This account registration is triggered automatically the first time you use `log`:
-
-![Alt text](imgs/registration.png)
-
-This prompts you to enter the admin password of your Mongo database. After entering the correct password you should see the resulting messages:
-
-![Alt text](imgs/registration_result.png)
-
-Behind the scenes `log_client` has used this password to authenticate to the `log_server`. After authentication, the server generates a random key for your user and sends this key to the client. This key is stored in `/etc/.Rust_Logger_Credentials` as a file readable only by the root user of the system. This prevents unauthorized users from stealing this key and potentially accessing the database. Future interactions with the server are authenticated using this key file.
-
-From the above output messages we can see the 3 main functions `log` can perform: `Execute and log`, `log`, and `clean`.
-
-What exactly does the system log? Let's see an example. 
-
-The original use-case of Rust_Logger was to manage the input/outputs of LAMMPS molecular dynamics simulations. I wanted a system that could run a simulation and then log all the inputs/outputs. This is the meaning of `Execute and log`. To do this with LAMMPS I could do the following from terminal:
-
->*For this I am referencing the `flow/` example in `lammps/examples/flow/` (note that I am running the below command from the same directory as the input file but this does not have to be the case. I can use the log utility to run a command from anywhere on the system assuming I provide the correct path to the input file/directory*).
-
-`$ log lmp -in in.flow.couette`
-
-Everything after the `log` command is simply what I would normally run for a LAMMPS simulation. Running this command we will see all the normal output from LAMMPS plus a few extra lines from the `log_client`:
-
-![Alt text](imgs/command_output_example.png)
-
-The final line: `"Data received"` let's us know that the `log_server` has received our data. After the LAMMPS simulation finished, `log` compressed the input file's entire directory and sent it to the server. Let's see how that looks via Mongo Compass. 
-
-![Alt text](imgs/upload_example.png)
-
-The first things we see are several fields with `"upload_"` in the prefix. This is the associated metadata of the upload. `upload_path` gives the actual location where the compressed data now exists.
-
-We can view the uploaded files in the `files` object:
-
-![Alt text](imgs/uploaded_files.png)
-
-The `log_server` actually only records certain file types that we add in the server config file. But the full contents of the original directory are still within `upload_path`. This way we can store all data without clogging the database with stuff that we might not care about.
-
->*Of course, depending on the outputs from our simulations we may be using up a lot of disk space. This can easily be changed in the future by restricting what is uploaded.*
-
-Now let's say we make a modification to our input file `in.flow.couette`. The next time we run a simulation this change will be noted by the system.
-
-However this time we can skip the simulation and just upload the folder directly- an example of the `log` functionality:
-
-`$ log -c -in in.flow.couette`
-
-This will just upload the directory without running any other external programs. In Mongo we can now inspect the `diffs` object of this newly inserted document:
-
-![Alt text](imgs/diff_example.png)
-
-We see the equivalent of a git diff of the file and see that `"# an extra line"` was added to the file.
-
->*This summarizes the basic functionality of the Rust_Logger. It is not enough to know the changes of our files, we also need to track certain quantities that we want to measure like maybe energy, conductivity, etc. This is explained in another part of the documentation*
 
 ## Setup - MongoDB
 Rust_Logger depends on a MongoDB database for it's backed. Currently this database must be installed and configured manually by you, the user. However, this does not require much work. We only need to set up a Mongo server with basic authentication settings. 
@@ -107,7 +58,13 @@ This will install the executable `tls_server` to `/usr/bin/` and attempt to star
 ## Setup - log_server config
 As the printed install messages indicate, you must first set up the server config. This will be located in a new hidden folder in your home directory called `.log_server/config`. It looks like this:
 
-![Alt text](imgs/server_config_example.png)
+```
+server_port 1241
+cert_path /home/tedwing/.log_server/myserver.crt
+key_path /home/tedwing/.log_server/myserver.key
+data_path /home/tedwing/.log_server/data/
+database LAMMPS
+```
 
 Not much going on there. The options are pretty self-explanatory but I will explain them here:
 
@@ -131,7 +88,11 @@ Considerably less flashy than the server install.
 ## Setup - log_client config
 This also installs a config to a hidden folder in the home folder at `~/.log/config`:
 
-![Alt text](imgs/client_config.png)
+```
+Username tayg
+Server localhost:1241
+tracked_files in.
+```
 
 Even more boring than the server config!
 
@@ -141,4 +102,201 @@ Even more boring than the server config!
 
 This covers the basic setup required for Rust_Logger to operate. You should now be able to run examples like the one shown earlier in [How it works - an example](#how-it-works---an-example).
 
-## How it works - Redux
+## `log` - the command-line utility
+When you run the `log_client` install script, you are actually installing a tool called `log` which can run from the linux terminal. `log` is what you use for all interactions with Rust_Logger. I will now explain each of its core functions.
+
+## `log` - registration
+>*The following is not essential for the actual usage of Rust_Logger but may be helpful for your overall understanding of the program. But feel free to skip if you are impatient.*
+
+### Usage: 
+
+`log <anything>`
+
+When you first run `log` on a system, you cannot actually access the database to insert or read documents bc the system does not have a valid account. The first thing that `log` does is to ask you for the admin password of the Mongo database. This would have been setup in the [Setup - MongoDB](#setup---mongodb) phase. The system will then use this password to authenticate to the server, which will then create a new user with full access to the `database` given in the server config. The username is the same `username` from the client config. 
+
+The server returns an API key which is then stored on you client machine as `/etc/.Rust_Logger_Credentials`. Only the root user on your client system can access this file. `log` is an SUID binary which temporarily obtains root privileges to read from this file. All other operations occur with your usual user permissions.
+
+This username + API key is what is used to further authenticate the client system to the server. 
+
+If everything runs properly this whole process is nearly instantaneous and unnoticeable to the end-user.
+
+## `log` - upload
+>*You absolutely MUST read this to be able to use the Rust_Logger in any meaningful way.*
+
+### Usage:
+
+`log -c <file or directory>`
+
+or
+
+`log <lammps command>`
+
+We now get to the real meat of the Rust_Logger. I think it is best to show how it works through an example.
+
+## Example
+
+Let's start with a simple example from the LAMMPS molecular dynamics repository. Because of it's funny name I have been testing all of this with the `crack` simulation (it simulates a crack forming between atoms). Here we see the directory containing the input file:
+
+![Alt text](imgs/crack_folder.png)
+
+Pretty boring. Just a simple input script. I can run the simulation easily with 
+
+`lmp -in in.crack`
+
+Doing that will generate an output file - log.lammps.
+
+![Alt text](imgs/crack_after_run.png)
+
+We would like to log this information with `log`. We can easily do this with:
+
+`log -c .`
+
+This will log the entire directory. But it has also created a new file in the directory:
+
+![Alt text](imgs/after_log.png)
+
+The REV file (short for "revision") is how the logger keeps tracks of changes made in the directory. It does this by recording hashes of the files in the directory. When you run `log` again it recalculates these hashes to see if they are different from what is in the REV file. If so, then `log` knows that there has been a change and that this needs to be recorded.
+
+Let's look at what the previous command uploaded to Mongo:
+
+![Alt text](imgs/mongodb_upload.png)
+
+From `upload_name` it looks like we have uploaded a compressed tar.gz version of the directory- which is exactly what has occurred. The `log_client` simply compresses the entire directory and sends it to `log_server`. 
+
+Below that we also see `id` and `parent_id`. These fields are used to track changes between simulations and track the progress of these changes. `id` is simply a combined hash of all files in the directory, with the directory name prepended (that's also the MongoDB collection name). `parent_id` is the id of the previous version of this simulation. Since this was the first upload to this collection, the `parent_id` is `*` which lets us know that this is the root entry.
+
+If you try to log the directory again we are given an error from `log`:
+
+![Alt text](imgs/same_file_error.png)
+
+The `log_server` uses the `upload_hash` to stop us from sending the exact set of files twice. `upload_hash` is a hash of the uploaded tar.gz file. Since we have made no changes, this hash has not changed.
+
+Let's see what happens when add a new arbitrary file:
+
+![Alt text](imgs/arb_file.png)
+
+This generate no errors. Let's look at the result in Mongo:
+
+![Alt text](imgs/upload_with_same_id.png)
+
+We see a new entry with a different `upload_hash` from the first upload, but the `id` and `parent_id` are unchanged. Why is this? Remember that `tracked_files` config setting? You can check it here [Setup - log_client config](#setup---log_client-config). By default Rust_logger will only monitor `in.` files which are the common prefix for LAMMPS input files. Only changes to these files will trigger an update of the `id` fields.
+
+Let's change the input file by changing the timestep from 0.003 to 0.001 and then reupload:
+
+![Alt text](imgs/change_to_input_file.png)
+
+The second entry shows a new `id` and the `parent_id` matches the previous run's `id`.
+
+Rust_Logger also records the specific changes that are made. This is recorded in the `diffs` object:
+
+![Alt text](imgs/diff.png)
+
+We can also access the entire input file directly in the `files` object:
+
+![Alt text](imgs/files_obj.png)
+
+`log` will prevent a drop in the revision chain by erroring if it cannot find the parent of your current directory. If I were to delete everything in our new `crack` collection on MongoDB and then try to reupload the directory I would get the following message:
+
+![Alt text](imgs/error_from_no_older_entry.png)
+
+This error can only occur if something was deleted in the MongoDB. To fix this you will need to delete the current REV file so that `log` can start a new branch.
+
+
+## `log` - `watch` file
+Within the `files` object we can also see the REV file here. But notice that the other files - `log.lammps` and `test_file` - are not present. This is because these file types are not on the `tracked_files` list. However, there is a way for us to tell `Rust_Logger` to monitor them.
+
+The purpose of Rust_Logger is not just monitor to files changes, but to also record specific simulation outputs. We can tell Rust_Logger to monitor certain outputs through the use of the `watch` file. 
+
+The `watch` is actually a kind of schema that we define using JSON. We use it to define what additional files we want to upload to the `log_server` and specific variables that we might want to track from our simulation outputs. It is added to the directory by the user:
+
+![Alt text](imgs/watch_file_in_dir.png)
+
+For our current `crack` example, a `watch` file might look like this:
+
+```json
+{
+  "log.lammps": 
+  {
+
+    "upload": 1,
+
+    "variables": 
+    {
+      "atom_style":
+      {
+        "type": "string"
+      },
+
+      "timestep":
+      {
+        "type": "float"
+      },
+
+      "dimension":
+      {
+        "type": "int"
+      },
+
+      "pair_style":
+      {
+        "type": "long_string"
+      },
+
+      "thermo_data": 
+      {
+        "type": "thermo_log"
+      }  
+    }
+
+  }
+}
+```
+>*If your eyes have glazed over, that's ok. The author is thinking of how to make this more user-friendly*
+
+The `watch` file is made up of different objects where the outermost key is the filename. This tells `log_server` to pay attention to this particular file. In this case we only reference one file: `log.lammps`.
+
+Within the file object we have 2 parameters `"upload"` and`"variables"`. `"upload"` is a boolean which tells `log_server` whether or not to include the entire file in the `files` object within the database. 
+
+`"variables"` is a list that tells `log_server` fields to extract from the file. It does this by looking for the appearance of the variable string within the file, and sthen extracting the value that appears after the string on the same line. We tell `log` the variable type with the `"type"` key.
+
+The variables given here may not be useful in any output analysis but they give examples of every possible type currently supported in Rust_Logger. Here is the corresponding entry within mongo:
+
+![Alt text](imgs/watch_data.png)
+
+`"thermo_log"` is a special type which refers to the thermodynamic data printed by LAMMPS:
+
+![Alt text](imgs/thermo_data.png)
+
+In the database it looks like this:
+
+![Alt text](imgs/thermo_data_db.png)
+![Alt text](imgs/thermo_data_db_expanded.png)
+
+## `log` - `dump` files
+It is possible to log dump files with Rust_Logger as well. In the `watch` file you can `"dump"` as a file.
+
+```json
+{
+  "log.lammps": 
+  {
+    ...
+  },
+
+  "dump": 
+  {
+    "parse": 1
+  }
+}
+```
+
+The `"parse"` option tells the logger to parse the dump file into a large dump object. Otherwise, the entire dump file will be just  uploaded as a single string. And example in Mongo is shown below:
+
+![Alt text](imgs/dump_example.png)
+
+Compared to the original file:
+
+![Alt text](imgs/dumpfile.png)
+
+>*Note this is very much a work in progress and every possible LAMMPS parameter may not be parsed correctly. For example, it is known that BOX BOUNDS is definitely not handled correctly.*
+
+>*It is also not recommended to try and view dump file outputs through MongoDB Compass. The large size of the dump files makes the interface very laggy. However, querying the dump file data through other means is quite fast.*
