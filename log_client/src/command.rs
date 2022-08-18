@@ -40,7 +40,7 @@ impl Command<'_> {
     // get full input file path
     let mut input_file_path = String::new();
     for i in 1..cmd_string.len() {
-      if cmd_string[i-1] == "-in" {
+      if cmd_string[i-1] == "-in" || cmd_string[i-1] == "-c" {
         input_file_path.insert_str(0, &cmd_string[i]);
       }
     }

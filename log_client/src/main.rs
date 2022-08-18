@@ -30,7 +30,6 @@ fn main() {
   // Can just compress directory and send it if simulation has already ran
   let mut compress_only = false;
   if args[0] == "-c" {
-    args.remove(0);
     compress_only = true;
   }
 
