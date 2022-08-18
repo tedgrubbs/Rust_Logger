@@ -171,24 +171,32 @@ impl Command<'_> {
   }
 
   fn update_rev_file(&self, parent_id: Option<&str>) -> io::Result<()> {
-    // Puts all hashes into hidden text file along with one "master" hash that sums up the whole directory
-    let mut filenames: Vec<&String> = self.curr_file_hashes.keys().collect();
-    filenames.sort();
+
+    // Puts all hashes into text file along with one "master" hash that sums up the whole directory
+    let filenames: Vec<&String> = self.curr_file_hashes.keys().collect();
 
     let mut rev_file = fs::File::create("REV")?;
 
+    // want ids at top of file
+    rev_file.write_all(b"id ")?;
+    rev_file.write_all(self.curr_file_hashes.get("id").unwrap().as_bytes())?;
+    rev_file.write_all(b"\n")?;
+
+    rev_file.write_all(b"parent_id ")?;
+    match parent_id {
+      Some(s) => rev_file.write_all(s.as_bytes())?,
+      None => rev_file.write_all(b"*\n")?
+    };
+
     for f in filenames {
+      if f == "id" { continue; } // don't need to write id twice
       rev_file.write_all(f.as_bytes())?;
       rev_file.write_all(b" ")?;
       rev_file.write_all(self.curr_file_hashes.get(f).unwrap().as_bytes())?;
       rev_file.write_all(b"\n")?;
     }
 
-    rev_file.write_all(b"parent_id ")?;
-    match parent_id {
-      Some(s) => rev_file.write_all(s.as_bytes())?,
-      None => rev_file.write_all(b"*")?
-    };
+    
     rev_file.flush()?;
     Ok(())
   }
