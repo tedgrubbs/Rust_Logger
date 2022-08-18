@@ -17,7 +17,7 @@ pub struct Command<'a> {
   input_file_path: path::PathBuf, // location of lammps input file or directory
   file_types: Vec<&'a str>, // allowed input filetypes 
   curr_file_hashes: HashMap<String,String>, // stores hashes of files  currently in directory
-  record_file_hashes: HashMap<String,String>, // stores hashes of files found in REV file
+  pub record_file_hashes: HashMap<String,String>, // stores hashes of files found in REV file
   pub needs_update: bool // whether or not the REV file needs to be updated
 }
 
@@ -187,6 +187,8 @@ impl Command<'_> {
       Some(s) => rev_file.write_all(s.as_bytes())?,
       None => rev_file.write_all(b"*\n")?
     };
+
+    rev_file.write_all(b"\n")?;
 
     for f in filenames {
       if f == "id" { continue; } // don't need to write id twice
