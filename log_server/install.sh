@@ -31,6 +31,8 @@ fi
 
 # installing the executable
 sudo cp build/$EXECUTABLE $INSTALL_DIR
+sudo chown root $INSTALL_DIR/$EXECUTABLE
+sudo chmod u+s $INSTALL_DIR/$EXECUTABLE
 
 # building service
 service_file="[Unit]\nDescription=Log Server service\nAfter=network.target\nStartLimitIntervalSec=0[Service]\nRestart=always\nRestartSec=1\n[Service]\nExecStart=$INSTALL_DIR/$EXECUTABLE\nType=simple\nUser=$USER\n[Install]\nWantedBy=multi-user.target\n"

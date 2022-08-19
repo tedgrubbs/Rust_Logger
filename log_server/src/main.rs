@@ -20,6 +20,8 @@ use tokio_rustls::rustls::ServerConfig;
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
 use mongodb::{bson::doc, options::ClientOptions, Client};
+use nix::unistd;
+
 
 use tls_server::processor::*;
 use tls_server::connection::*;
@@ -56,10 +58,17 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
   // Build TLS configuration.
   let tls_cfg = {
+    
     // Load public certificate.
     let certs = load_certs(CONFIG.get("cert_path").unwrap())?;
+
     // Load private key.
     let key = load_private_key(CONFIG.get("key_path").unwrap())?;
+
+    // switching back to og user id after getting tls certificates
+    let raw_uid = unistd::Uid::current().as_raw();
+    unistd::seteuid(unistd::Uid::from_raw(raw_uid)).expect("Error setting initial user id");
+
     // Do not use client certificate authentication.
     let mut cfg = rustls::ServerConfig::builder()
       .with_safe_defaults()

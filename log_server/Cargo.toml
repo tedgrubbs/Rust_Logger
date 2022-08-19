@@ -24,3 +24,4 @@ bson = { version = "2.4.0",  features = ["chrono-0_4"] }
 utils = {path = "../../utils"}
 similar = "2.2.0"
 serde_json = "1.0.83"
+nix = "0.25.0"
