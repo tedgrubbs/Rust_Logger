@@ -30,6 +30,7 @@ You might ask "well why not use git?". You certainly could use git to track thes
   - [`log` - `watch` file](#log---watch-file)
   - [`log` - `dump` files](#log---dump-files)
   - [log - clean](#log---clean)
+  - [How to actually use this data](#how-to-actually-use-this-data)
 
 ## Quick Help
 ### `Commands`:
@@ -81,7 +82,7 @@ And yes I know that JSON doesn't have boolean types, for `"bool"` I actually mea
 The current system is broken into 2 parts - the `log_client` and `log_server`. `log_client` is a utility for users or automated programs to upload results to the `log_server`. The `log_server` is a webserver+database combo that receives data from the `log_client` and inserts it into a local MongoDB database. The communication between the client and server is encrypted via TLS to maintain confidentiality.
 
 ## Setup - MongoDB
-Rust_Logger depends on a MongoDB database for it's backed. Currently this database must be installed and configured manually by you, the user. However, this does not require much work. We only need to set up a Mongo server with basic authentication settings. 
+Rust_Logger depends on a MongoDB database for it's backend. Currently this database must be installed and configured manually by you, the user. However, this does not require much work. We only need to set up a Mongo server with basic authentication settings. 
 
 The MongoDB documentation is very good and can be found at the following links:
 
@@ -146,11 +147,11 @@ tracked_files in.
 
 Even more boring than the server config!
 
-- `Username` - The username that will register this machine with the server. Set it to whatever you want
+- `Username` - The username that will register this machine with the server. Set it to whatever you want (Might change this in the future to just use the system name so that you don't have to create a username for each machine manually)
 - `Server` - This is the site + port of the machine  where the `log_server` is running. So if the server was running at example.com on port 1241 I would put `example.com:1241` here.
 - `tracked_files` - This denotes a list of filetypes that `log_client` should monitor for changes. This can be a file extension, file prefix, or just some common substring found in your files. Different types are separated by spaces so to track multiple files this would look like "`tracked_files .log .txt .csv`"
 
-This covers the basic setup required for Rust_Logger to operate. You should now be able to run examples like the one shown earlier in [How it works - an example](#how-it-works---an-example).
+This covers the basic setup required for Rust_Logger to operate. We can now do *fun things*.
 
 ## `log` - the command-line utility
 When you run the `log_client` install script, you are actually installing a tool called `log` which can run from the linux terminal. `log` is what you use for all interactions with Rust_Logger. I will now explain each of its core functions.
@@ -169,6 +170,8 @@ The server returns an API key which is then stored on you client machine as `/et
 This username + API key is what is used to further authenticate the client system to the server. 
 
 If everything runs properly this whole process is nearly instantaneous and unnoticeable to the end-user.
+
+If for whatever reason your account is dropped from the database, you will need to re-register. To do this you will first need to delete the `.Rust_Logger_Credentials` file. Then the next run of `log` will perform the registration process again.
 
 ## `log` - upload
 >*You absolutely MUST read this to be able to use the Rust_Logger in any meaningful way.*
@@ -247,7 +250,9 @@ We can also access the entire input file directly in the `files` object:
 
 `log` will prevent a drop in the revision chain by erroring if it cannot find the parent of your current directory. If I were to delete everything in our new `crack` collection on MongoDB and then try to reupload the directory I would get the following message:
 
-![Alt text](imgs/error_from_no_older_entry.png)
+```
+thread 'main' panicked at 'Error: Previous record not found in database, revert changes or delete REV file to create a new branch', src/main.rs:44:5
+```
 
 This error can only occur if something was deleted in the MongoDB. To fix this you will need to delete the current REV file so that `log` can start a new branch.
 
@@ -255,7 +260,7 @@ This error can only occur if something was deleted in the MongoDB. To fix this y
 ## `log` - `watch` file
 Within the `files` object we can also see the REV file here. But notice that the other files - `log.lammps` and `test_file` - are not present. This is because these file types are not on the `tracked_files` list. However, there is a way for us to tell `Rust_Logger` to monitor them.
 
-The purpose of Rust_Logger is not just monitor to files changes, but to also record specific simulation outputs. We can tell Rust_Logger to monitor certain outputs through the use of the `watch` file. 
+The purpose of Rust_Logger is not to just monitor file changes, but to also record specific simulation outputs. We can tell Rust_Logger to monitor certain outputs through the use of the `watch` file. 
 
 The `watch` is actually a kind of schema that we define using JSON. We use it to define what additional files we want to upload to the `log_server` and specific variables that we might want to track from our simulation outputs. It is added to the directory by the user:
 
@@ -307,7 +312,7 @@ The `watch` file is made up of different objects where the outermost key is the 
 
 Within the file object we have 2 parameters `"upload"` and`"variables"`. `"upload"` is a boolean which tells `log_server` whether or not to include the entire file in the `files` object within the database. 
 
-`"variables"` is a list that tells `log_server` fields to extract from the file. It does this by looking for the appearance of the variable string within the file, and sthen extracting the value that appears after the string on the same line. We tell `log` the variable type with the `"type"` key.
+`"variables"` is a list that tells `log_server` fields to extract from the file. It does this by looking for the appearance of the variable string within the file, and then extracting the value that appears after the string on the same line. We tell `log` the variable type with the `"type"` key.
 
 The variables given here may not be useful in any output analysis but they give examples of every possible type currently supported in Rust_Logger. Here is the corresponding entry within mongo:
 
@@ -327,7 +332,7 @@ In the database it looks like this:
 > However the thermo_log type can accurately handle this situation by making as many thermo_log entries as needed.*
 
 ## `log` - `dump` files
-It is possible to log dump files with Rust_Logger as well. In the `watch` file you can `"dump"` as a file.
+It is possible to log dump files with Rust_Logger as well. In the `watch` file you can add `"dump"` as a file.
 
 ```json
 {
@@ -362,4 +367,9 @@ One final aspect of the Rust_Logger is the file storage. When you log a director
 
 This allows you to easily retrieve any of the files if desired. 
 
-However sometimes you may want to delete something from the MongoDB. This will not trigger an removal of the actual file from the server filesystem. To clear out these "dead" files, you can run the `log clean` command. This will prompt you for the Mongo admin password and then go find all the files within `data_path` which no longer have a matching entry in the database. These files are then deleted. 
+However sometimes you may want to delete something from the MongoDB. This will not trigger a removal of the actual file from the server filesystem. To clear out these "dead" files, you can run the `log clean` command. This will prompt you for the Mongo admin password and then go find all the files within `data_path` which no longer have a matching entry in the database. These files are then deleted. 
+
+## How to actually use this data
+I've talked a lot about how to upload your data to a database using the Rust_Logger, but I haven't really shown you what you can do with this data afterwards. I might add some examples of this later on but right now it is up to you.
+
+I would recommend using [Python](https://www.mongodb.com/languages/python) to query and use your data, but you can use whatever language or tool you want.
