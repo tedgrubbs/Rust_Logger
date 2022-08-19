@@ -11,6 +11,9 @@ You might ask "well why not use git?". You certainly could use git to track thes
 - [Rust_Logger](#rust_logger)
   - [A git-like utility for easily tracking file changes](#a-git-like-utility-for-easily-tracking-file-changes)
   - [Contents](#contents)
+  - [Quick Help](#quick-help)
+    - [`Commands`:](#commands)
+    - [`watch` file schema:](#watch-file-schema)
   - [How it works](#how-it-works)
   - [Setup - MongoDB](#setup---mongodb)
   - [Setup - log_server: Prerequisite TLS](#setup---log_server-prerequisite-tls)
@@ -26,6 +29,51 @@ You might ask "well why not use git?". You certainly could use git to track thes
   - [Example](#example)
   - [`log` - `watch` file](#log---watch-file)
   - [`log` - `dump` files](#log---dump-files)
+  - [log - clean](#log---clean)
+
+## Quick Help
+### `Commands`:
+>*User input is denoted by angle brackets <>*
+
+- `log <lammps command>` - will execute `<lammps command>` and upload results to server. Command must include "-in" followed by a lammps input file. 
+  - Example: `log mpirun -np 4 lmp -in in.crack`
+- `log -c < file / directory / . >` - Will compress and upload current directory to server. If given a file, will compress the directory containing said file.
+  - Example: `log -c lammps/examples/crack/`
+- `log clean` - Will remove any "dead" files deleted from database but still on the server filesystem.
+  - Example: `log clean`
+
+### `watch` file schema:
+```json
+{
+  // uploads files or gets specific values from files
+  "<file name>": 
+  {
+
+    "upload": < boolean 0 or 1 >,
+
+    "variables": 
+    {
+      "<variable name>":
+      {
+        "type": "< float / 
+                   int /
+                   string /
+                   long_string / 
+                   thermo_log 
+                 >"
+      }
+    }
+  },
+
+  // logs all dump files
+  "dump": 
+  {
+    "parse": < boolean 0 or 1 >
+  }
+
+}
+```
+
 
 ## How it works 
 The current system is broken into 2 parts - the `log_client` and `log_server`. `log_client` is a utility for users or automated programs to upload results to the `log_server`. The `log_server` is a webserver+database combo that receives data from the `log_client` and inserts it into a local MongoDB database. The communication between the client and server is encrypted via TLS to maintain confidentiality.
@@ -272,6 +320,10 @@ In the database it looks like this:
 ![Alt text](imgs/thermo_data_db.png)
 ![Alt text](imgs/thermo_data_db_expanded.png)
 
+>*You might be wondering, "well, what if I have multiple occurences of the same string in my output files? How will Rust_Logger handle those?"  
+> The answer is ... it doesn't. It will just use the last appearance of that variable for the value it logs.  
+> However the thermo_log type can accurately handle this situation by making as many thermo_log entries as needed.*
+
 ## `log` - `dump` files
 It is possible to log dump files with Rust_Logger as well. In the `watch` file you can `"dump"` as a file.
 
@@ -300,3 +352,12 @@ Compared to the original file:
 >*Note this is very much a work in progress and every possible LAMMPS parameter may not be parsed correctly. For example, it is known that BOX BOUNDS is definitely not handled correctly.*
 
 >*It is also not recommended to try and view dump file outputs through MongoDB Compass. The large size of the dump files makes the interface very laggy. However, querying the dump file data through other means is quite fast.*
+
+## log - clean
+One final aspect of the Rust_Logger is the file storage. When you log a directory with `log` it sends a compressed version of the directory to the server. These files reside in the `data` folder specified in the `data_path` config:
+
+![Alt text](imgs/data_path_ex.png)
+
+This allows you to easily retrieve any of the files if desired. 
+
+However sometimes you may want to delete something from the MongoDB. This will not trigger an removal of the actual file from the server filesystem. To clear out these "dead" files, you can run the `log clean` command. This will prompt you for the Mongo admin password and then go find all the files within `data_path` which no longer have a matching entry in the database. These files are then deleted. 
