@@ -43,37 +43,39 @@ You might ask "well why not use git?". You certainly could use git to track thes
   - Example: `log clean`
 
 ### `watch` file schema:
+
 ```json
 {
-  // uploads files or gets specific values from files
   "<file name>": 
   {
 
-    "upload": < boolean 0 or 1 >,
+    "upload": "bool",
 
     "variables": 
     {
-      "<variable name>":
+      "<variable name: string>":
       {
-        "type": "< float / 
-                   int /
-                   string /
-                   long_string / 
-                   thermo_log 
-                 >"
+        "type": "<type>"
       }
     }
   },
 
-  // logs all dump files
   "dump": 
   {
-    "parse": < boolean 0 or 1 >
+    "parse": "bool"
   }
 
 }
 ```
+Valid types are:
 
+- string
+- long_string
+- float
+- int
+- thermo_log
+
+And yes I know that JSON doesn't have boolean types, for `"bool"` I actually mean `1/0` for `true/false`, respectively.
 
 ## How it works 
 The current system is broken into 2 parts - the `log_client` and `log_server`. `log_client` is a utility for users or automated programs to upload results to the `log_server`. The `log_server` is a webserver+database combo that receives data from the `log_client` and inserts it into a local MongoDB database. The communication between the client and server is encrypted via TLS to maintain confidentiality.
