@@ -39,11 +39,20 @@ net:
 can make a pem file by concatenating .crt and .key file:
 cat myserver.crt myserver.key > myserver.pem
 
+For Let's Encrypt can do this like:
+cat fullchain.pem privkey.pem > mongo.pem
+within /etc/letsencrypt/live/<domain>/
+
+Will need to then change the owner of this file to the mongodb user and make sure no one else can read it, and make sure mongodb cat get to it.
+
 // Note that TLS connections through the driver seem to not work at all for self-signed certs. Will need to use properly verified cert if TLS in
 desired in production
 
+
+
 //When not authenticating to admin, need to specify the database that the user is attached to in the "authSource" field.
 
+When on a public server need to change the Bind_Ip to 0.0.0.0 or else it will only listen to connections from the localhost interface
 
 
 <<<< Schema setup >>>>
