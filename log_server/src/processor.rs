@@ -1,6 +1,6 @@
 
 use futures_util::{TryStreamExt};
-use mongodb::{bson::{Document, Bson}, Client};
+use mongodb::{bson::{Document, Bson, Array}, Client};
 use std::{fs::File, io::Read, io, collections::HashMap};
 use flate2::read::GzDecoder;
 use tar::Archive;
@@ -133,6 +133,13 @@ impl Processor {
                 },
                 "string" => {
                   watch_values.insert(var_name.to_string(), line[val_pos]);
+                },
+                "keywords" => {
+                  let mut keyword_doc = Array::new();
+                  for word in line[val_pos..].iter() {
+                    keyword_doc.push(Bson::String(word.to_string()));
+                  }
+                  watch_values.insert("keywords", keyword_doc);
                 },
                 &_ => { // anything is simple string
                   println!("Error! Invalid watch type {}", var_type);
