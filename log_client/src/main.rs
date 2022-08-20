@@ -38,8 +38,10 @@ fn main() {
 
   // if need to update record, should communicate with server to check if current record id exists
   if user.check_id(tracking_info) {
-    println!("Record exists, can update");
-    cmd.update_record()
+    if cmd.needs_update {
+      println!("Record exists, can update");
+      cmd.update_record()
+    }
   } else if cmd.record_file_hashes.get("parent_id").unwrap() != "*" { // if parent id is * then it's a new branch and there is no problem
     panic!("Error: Previous record not found in database, revert changes or delete REV file to create a new branch");
   }
