@@ -15,7 +15,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
-use std::{fs, io, io::Write, sync};
+use std::{fs, io, io::Write as iowritetrait, sync};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_rustls::rustls::ServerConfig;
 use rand::{thread_rng, Rng};
@@ -25,6 +25,7 @@ use nix::unistd;
 
 use html_builder::*;
 use cookie::{Cookie, CookieJar};
+use std::fmt::Write;
 
 
 
@@ -298,7 +299,6 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
 async fn home_page(response: &mut hyper::Response<Body>) {
 
-  use std::fmt::Write;
   let mut buf = Buffer::new();
   writeln!(buf, "<!-- My website -->").unwrap();
   buf.doctype();
@@ -321,7 +321,6 @@ async fn home_page(response: &mut hyper::Response<Body>) {
 
 async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) {
   
-  use std::fmt::Write;
   let uri_path = req.uri().path();
   let collection = uri_path.split_once("query/").unwrap().1;
 
@@ -411,7 +410,6 @@ async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Conne
     }
   };
 
-  use std::fmt::Write;
   let mut buf = Buffer::new();
   writeln!(buf, "<!-- My website -->").unwrap();
   buf.doctype();
