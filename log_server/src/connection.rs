@@ -18,7 +18,7 @@ impl Connection {
 
     let username = match headers.get("username") {
       Some(k) => String::from(k.to_str().unwrap()),
-      None => return Err("No username provided".to_string())
+      None => String::from("admin")
     };
 
     let password = match headers.get("password") {

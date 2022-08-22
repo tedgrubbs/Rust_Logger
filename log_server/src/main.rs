@@ -5,7 +5,8 @@
 //! hyper will automatically use HTTP/2 if a client starts talking HTTP/2,
 //! otherwise HTTP/1.1 will be used.
 use core::task::{Context, Poll};
-use futures_util::{ready, StreamExt};
+use std::io::Read;
+use futures_util::{ready, StreamExt, TryStreamExt};
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
 use hyper::service::{make_service_fn, service_fn};
@@ -22,6 +23,10 @@ use rand::distributions::Alphanumeric;
 use mongodb::{bson::doc, options::ClientOptions, Client};
 use nix::unistd;
 
+use html_builder::*;
+use cookie::{Cookie, CookieJar};
+
+
 
 use tls_server::processor::*;
 use tls_server::connection::*;
@@ -34,6 +39,8 @@ extern crate lazy_static;
 lazy_static! {
   static ref CONFIG: std::collections::HashMap<String, String> = Globals::new().globals;
 }
+
+static JAR: global::Global<CookieJar> = global::Global::new();
 
 fn main() {
 
@@ -227,14 +234,44 @@ async fn get_db_conn(username: &str, password: &str, database: &str) -> std::res
 
 }
 
-// Custom echo service, handling two different routes and a
-// catch-all 404 responder.
 async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
   
   let mut response = Response::new(Body::empty());
 
-  // getting connection info from request headers
-  let conn = match Connection::get_conn_info(&req) {
+
+  // What you see by just hitting the root site url
+  match (req.method(), req.uri().path()) {
+    (&Method::GET, "/") => {
+
+      use std::fmt::Write;
+      let mut buf = Buffer::new();
+      writeln!(buf, "<!-- My website -->").unwrap();
+      buf.doctype();
+      let mut html = buf.html().attr("lang='en'");
+      let mut head = html.head();
+      writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
+      head.meta().attr("charset='utf-8'");
+
+      let mut body = html.body().attr("style='background-color:#808080;'");
+      writeln!(body.h1(), "Rust_Logger").unwrap();
+
+      let mut form = body.form().attr("action='/' method='post'");
+      form.input().attr("type='password' id='password' name='password'");
+      form.input().attr("type='submit' value='Enter'");
+
+      // Finally, call finish() to extract the buffer.
+      *response.body_mut() = Body::from(buf.finish());
+      return Ok(response)
+    },
+    _ => {
+      *response.status_mut() = StatusCode::NOT_FOUND;
+    }
+  };
+
+
+
+   // getting connection info from request headers
+   let conn = match Connection::get_conn_info(&req) {
     Ok(v) => v,
     Err(err) => {
       return set_response_error(response, err.to_string())
@@ -242,7 +279,150 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
   };
 
+  // querying through web browser
+  let uri_path = req.uri().path();
+  if req.method() == &Method::GET && uri_path.contains("/query/") {
+    
+    use std::fmt::Write;
+
+    let collection = uri_path.split_once("query/").unwrap().1;
+
+    let mut password = String::new();
+    {
+      let jar = JAR.lock().unwrap();
+      for c in req.headers().get_all("cookie").iter() {
+        match jar.get(c.to_str().unwrap()) {
+          Some(cookie) => {
+            password = cookie.value().to_string();
+            break;
+          },
+          None => ()
+        }
+      }
+    };
+
+    // if tar.gz in the name assume you are grabbing a file.
+    if uri_path.contains("tar.gz") {
+      let mut filestring = CONFIG.get("data_path").unwrap().to_string();
+      filestring.push_str(collection);
+      println!("{}", filestring);
+      let mut file = fs::File::open(filestring).unwrap();
+      let mut file_buf: Vec<u8> = Vec::new();
+      file.read_to_end(&mut file_buf).unwrap();
+
+      response.headers_mut().insert("Content-Type", hyper::header::HeaderValue::from_str("application/octet-stream").unwrap());
+      *response.body_mut() = Body::from(file_buf);
+      *response.status_mut() = StatusCode::OK; // need to retun OK status code or it will not trigger the auto download
+      return Ok(response)
+    }
+
+
+    
+    let mut buf = Buffer::new();
+    writeln!(buf, "<!-- My website -->").unwrap();
+    buf.doctype();
+    let mut html = buf.html().attr("lang='en'");
+    let mut head = html.head();
+    writeln!(head.title(), "LAMMPS SERVER").unwrap();
+    head.meta().attr("charset='utf-8'");
+    let mut body = html.body().attr("style='background-color:#808080;'");
+    writeln!(body.h1(), "{}", &collection).unwrap();
+
+    let mut list = body.ul();
+
+    // Connecting to database 
+    let client = match get_db_conn(&conn.username, &password, "admin").await {
+      Ok(c) => c,
+      Err(err) => {
+        return set_response_error(response, err.to_string())
+      }
+    };
+
+    let db = client.database(CONFIG.get("database").unwrap()).collection::<bson::Document>(collection);
+    let mut res = db.find(None, None).await.unwrap();
+    
+    while let Some(doc) = res.try_next().await.unwrap() {
+      
+      let mut file_string = String::from("");
+      file_string.push_str(doc.get("upload_path").unwrap().as_str().unwrap());
+      let file_string = file_string.split_once(CONFIG.get("data_path").unwrap()).unwrap().1;
+
+      writeln!(
+        list.li().a().attr(
+            &format!("href='{}' download", file_string)
+        ),
+        "{}", file_string,
+      ).unwrap()
+      
+    }
+    
+
+    // Finally, call finish() to extract the buffer.
+    *response.body_mut() = Body::from(buf.finish());
+    return Ok(response)
+
+  }
+
+
+  // normal API for POSTs
   match (req.method(), req.uri().path()) {
+
+    // after providing password through GET page
+    (&Method::POST, "/") => {
+      let form_password =  String::from_utf8(hyper::body::to_bytes(req.into_body()).await?.to_ascii_lowercase()).unwrap();
+      let form_password = form_password.split_once("=").unwrap().1;
+
+      // Connecting to database 
+      let client = match get_db_conn(&conn.username, form_password, "admin").await {
+        Ok(c) => c,
+        Err(err) => {
+          return set_response_error(response, err.to_string())
+        }
+      };
+
+      use std::fmt::Write;
+      let mut buf = Buffer::new();
+      writeln!(buf, "<!-- My website -->").unwrap();
+      buf.doctype();
+      let mut html = buf.html().attr("lang='en'");
+      let mut head = html.head();
+      writeln!(head.title(), "LAMMPS SERVER").unwrap();
+      head.meta().attr("charset='utf-8'");
+      let mut body = html.body().attr("style='background-color:#808080;'");
+      writeln!(body.h1(), "Rust_Logger").unwrap();
+      
+      // Get a handle to a database.
+      let db = client.database(CONFIG.get("database").unwrap());
+      let mut list = body.ul();
+      // List the names of the collections in that database.
+      for collection_name in db.list_collection_names(None).await.unwrap() {
+
+        let mut query_endpoint = "query/".to_string();
+        query_endpoint.push_str(&collection_name);
+        writeln!(
+          list.li().a().attr(
+              &format!("href='{}'", query_endpoint)
+          ),
+          "{}", collection_name,
+        ).unwrap()
+
+      }
+      
+      // creating new cookie
+      let headers = response.headers_mut();
+      let cookie = Cookie::new("foo".to_owned(), form_password.to_owned());
+      let cookie_string = String::from(cookie.name());
+
+      JAR.lock_mut().unwrap().add(cookie);
+
+      headers.insert(hyper::header::SET_COOKIE, hyper::header::HeaderValue::from_str(&cookie_string).unwrap());
+      
+      
+      // Finally, call finish() to extract the buffer.
+      *response.body_mut() = Body::from(buf.finish());
+      return Ok(response)
+
+    },
 
     // for the usual uploading of simulation data
     (&Method::POST, "/upload") => {
