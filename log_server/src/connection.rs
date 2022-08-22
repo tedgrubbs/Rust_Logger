@@ -2,17 +2,18 @@ use hyper::{Request, Body};
 use mongodb::{bson::{Document}, Client, bson::doc, options::FindOptions};
 
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Connection {
   pub username: String,
   pub password: String,
   pub filename: String,
   pub collection: String,
-  pub filehash: String
+  pub filehash: String,
+  pub err: Option<String>
 }
 
 impl Connection {
-  pub fn get_conn_info(req: &Request<Body>) -> std::result::Result<Connection, String> {
+  pub fn get_conn_info(req: &Request<Body>) -> Connection {
 
     let headers = req.headers();
 
@@ -41,15 +42,16 @@ impl Connection {
       None => String::new()
     };
 
-    Ok (
-      Connection {
-        username,
-        password,
-        filename,
-        collection,
-        filehash
-      }
-    )
+    
+    Connection {
+      username,
+      password,
+      filename,
+      collection,
+      filehash,
+      err: None
+    }
+    
     
   }
 
