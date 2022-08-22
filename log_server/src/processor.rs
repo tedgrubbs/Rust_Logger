@@ -388,8 +388,8 @@ impl Processor {
     let coll_name = &self.conn.collection;
 
     // inserting general upload metadata
-    parent_doc.insert("upload_hash", &self.conn.filehash);
     parent_doc.insert("upload_name", &self.conn.filename);
+    parent_doc.insert("upload_hash", &self.conn.filehash);
     parent_doc.insert("upload_path", &self.file_path);
     parent_doc.insert("upload_time", chrono::offset::Utc::now());
     

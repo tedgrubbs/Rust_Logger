@@ -263,21 +263,18 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
       *response.body_mut() = Body::from(buf.finish());
       return Ok(response)
     },
-    _ => {
-      *response.status_mut() = StatusCode::NOT_FOUND;
-    }
+    _ => ()
   };
 
 
 
    // getting connection info from request headers
    let conn = match Connection::get_conn_info(&req) {
-    Ok(v) => v,
-    Err(err) => {
-      return set_response_error(response, err.to_string())
-    }
-
-  };
+      Ok(v) => v,
+      Err(err) => {
+        return set_response_error(response, err.to_string())
+      }
+    };
 
   // querying through web browser
   let uri_path = req.uri().path();
@@ -449,9 +446,12 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
       tokio::spawn(async move {
         let mut new_filename = String::new();
         new_filename.push_str(CONFIG.get("data_path").unwrap());
-        new_filename.push_str(&conn.filehash);
-        new_filename.push('_');
-        new_filename.push_str(&conn.filename);
+        if &conn.filename != "" {
+          new_filename.push_str(&conn.filename);
+        } else {
+          new_filename.push_str(&conn.filehash);
+        }
+        new_filename.push_str(".tar.gz");
 
         let mut outputfile = fs::File::create(&new_filename).expect("File creation failed");
         outputfile.write_all(&full_body).expect("File write failed");
