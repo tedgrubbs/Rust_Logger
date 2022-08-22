@@ -245,7 +245,7 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
 
   } else {
 
-    // normal API for POSTs
+    // normal API for everything else
     match (req.method(), req.uri().path()) {
 
       // home page in browser
@@ -254,8 +254,12 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
       },
 
       // after providing password through GET page
-      (&Method::POST, "/") => {
-        show_collections(&mut response, &mut conn, req).await;
+      (&Method::GET, "/collections") => {
+        show_collections(&mut response, &mut conn, req.headers()).await;
+      },
+
+      (&Method::POST, "/login") => {
+        web_login(&mut response, &mut conn, req).await;
       },
 
       // for the usual uploading of data
@@ -310,7 +314,7 @@ async fn home_page(response: &mut hyper::Response<Body>) {
   let mut body = html.body().attr("style='background-color:#808080;'");
   writeln!(body.h1(), "Rust_Logger").unwrap();
 
-  let mut form = body.form().attr("action='/' method='post'");
+  let mut form = body.form().attr("action='/login' method='post'");
   form.input().attr("type='password' id='password' name='password'");
   form.input().attr("type='submit' value='Enter'");
 
@@ -319,24 +323,101 @@ async fn home_page(response: &mut hyper::Response<Body>) {
   
 }
 
+async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) {
+
+  let form_password = String::from_utf8(hyper::body::to_bytes(req.into_body()).await.unwrap().to_ascii_lowercase()).unwrap();
+  let form_password = form_password.split_once("=").unwrap().1;
+
+  // Connecting to database to verify user 
+  let _client = match get_db_conn(&conn.username, form_password, "admin").await {
+    Ok(c) => c,
+    Err(err) => {
+      return set_response_error(conn, err.to_string())
+    }
+  };
+  
+
+  // creating new cookie
+  let headers = response.headers_mut();
+
+  // Creating new random cookie string
+  let new_cookie_name: String = thread_rng()
+  .sample_iter(&Alphanumeric)
+  .take(8)
+  .map(char::from)
+  .collect();
+
+  // password was correct so can store password in cookie jar
+  {
+    let mut jar = JAR.lock_mut().unwrap();
+    let mut new_cookie = Cookie::new(new_cookie_name.to_owned(), form_password.to_owned());
+    let mut now = cookie::time::OffsetDateTime::now_utc();
+    now += cookie::time::Duration::seconds(10);
+    new_cookie.set_expires(now);
+    jar.add(new_cookie);
+  };
+
+  headers.insert(hyper::header::SET_COOKIE, hyper::header::HeaderValue::from_str(&new_cookie_name).unwrap());
+
+
+  let mut buf = Buffer::new();
+  writeln!(buf, "<!-- My website -->").unwrap();
+  buf.doctype();
+  let mut html = buf.html().attr("lang='en'");
+  let mut head = html.head();
+  head.meta().attr("http-equiv='refresh' content='0; URL=https://localhost:1241/collections'");
+  *response.body_mut() = Body::from(buf.finish());
+}
+
+fn check_cookie(headers: &hyper::HeaderMap, conn: &mut Connection) -> String {
+  
+  let mut password = String::new();
+  let mut jar = JAR.lock_mut().unwrap();
+  let mut expired = String::new();
+  let mut has_cookie = false;
+
+  for c in headers.get_all("cookie").iter() {
+
+    match jar.get(c.to_str().unwrap()) {
+
+      Some(cookie) => {
+
+        password = cookie.value().to_string();
+        has_cookie = true;
+        let expiration_time = cookie.expires_datetime();
+        if expiration_time.is_some() && cookie::time::OffsetDateTime::now_utc() > expiration_time.unwrap() {
+          println!("Expired");
+          set_response_error(conn, "Login expired".to_string());
+          expired = cookie.name().to_string();
+        }
+        break;
+
+      },
+
+      None => ()
+
+    }
+
+  }
+
+  if !has_cookie {
+    set_response_error(conn, "Unauthorized, must login".to_string());
+  }
+
+  if !expired.is_empty() {
+    jar.force_remove(&Cookie::named(expired));
+  }
+
+  password
+}
+
 async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) {
   
   let uri_path = req.uri().path();
   let collection = uri_path.split_once("query/").unwrap().1;
 
-  let mut password = String::new();
-  {
-    let jar = JAR.lock().unwrap();
-    for c in req.headers().get_all("cookie").iter() {
-      match jar.get(c.to_str().unwrap()) {
-        Some(cookie) => {
-          password = cookie.value().to_string();
-          break;
-        },
-        None => ()
-      }
-    }
-  };
+  let password = check_cookie(req.headers(), conn);
+  if conn.err.is_some() { return }
 
   // if tar.gz in the name assume you are grabbing a file.
   if uri_path.contains("tar.gz") {
@@ -397,13 +478,14 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
   *response.body_mut() = Body::from(buf.finish());
 }
 
-async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) {
+async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Connection, req: &hyper::HeaderMap) {
   
-  let form_password = String::from_utf8(hyper::body::to_bytes(req.into_body()).await.unwrap().to_ascii_lowercase()).unwrap();
-  let form_password = form_password.split_once("=").unwrap().1;
-
-  // Connecting to database 
-  let client = match get_db_conn(&conn.username, form_password, "admin").await {
+  let password = check_cookie(req, conn);
+  if conn.err.is_some() { return }
+  
+  
+  // Connecting to database to verify user and get collection list 
+  let client = match get_db_conn(&conn.username, &password, "admin").await {
     Ok(c) => c,
     Err(err) => {
       return set_response_error(conn, err.to_string())
@@ -436,16 +518,6 @@ async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Conne
     ).unwrap()
 
   }
-  
-  // creating new cookie
-  let headers = response.headers_mut();
-  let cookie = Cookie::new("foo".to_owned(), form_password.to_owned());
-  let cookie_string = String::from(cookie.name());
-
-  JAR.lock_mut().unwrap().add(cookie);
-
-  headers.insert(hyper::header::SET_COOKIE, hyper::header::HeaderValue::from_str(&cookie_string).unwrap());
-  
   
   // Finally, call finish() to extract the buffer.
   *response.body_mut() = Body::from(buf.finish());
