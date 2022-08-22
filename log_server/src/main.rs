@@ -27,20 +27,21 @@ use html_builder::*;
 use cookie::{Cookie, CookieJar};
 use std::fmt::Write;
 
-
-
 use tls_server::processor::*;
 use tls_server::connection::*;
-use tls_server::globals::*;
+use tls_server::config::*;
+
+
 
 #[macro_use]
 extern crate lazy_static;
 
 // sets up global configuration settings
 lazy_static! {
-  static ref CONFIG: std::collections::HashMap<String, String> = Globals::new().globals;
+  static ref CONFIG: std::collections::HashMap<String, String> = Config::new().config;
 }
 
+// cookie jar for managing logins
 static JAR: global::Global<CookieJar> = global::Global::new();
 
 fn main() {

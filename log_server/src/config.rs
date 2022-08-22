@@ -5,11 +5,11 @@ use utils::utils;
 
 // Stored global configuration settings found in server config
 
-pub struct Globals {
-  pub globals: HashMap<String, String>
+pub struct Config {
+  pub config: HashMap<String, String>
 }
 
-impl Globals {
+impl Config {
 
   const ALLOWED_SERVER_OPTIONS: [&'static str; 5] = [
       "server_port",
@@ -19,7 +19,7 @@ impl Globals {
       "database"
   ];
 
-  pub fn new() -> Globals {
+  pub fn new() -> Config {
 
     // let runtime = Instant::now();
 
@@ -29,20 +29,20 @@ impl Globals {
     if !path::Path::new(&config_path).exists() {
       println!("Error: credentials not set up. Cannot log data before setup.");
       println!("Please create a file at ~/.log_server/config with the connection details like so:");
-      for s in Globals::ALLOWED_SERVER_OPTIONS {
+      for s in Config::ALLOWED_SERVER_OPTIONS {
         println!("{}", s);
       }
       println!("");
       panic!();
     }
 
-    let mut globals = HashMap::with_capacity(Globals::ALLOWED_SERVER_OPTIONS.len());
-    utils::read_file_into_hash(config_path.to_str().unwrap(), Some(&Globals::ALLOWED_SERVER_OPTIONS), &mut globals).unwrap();
+    let mut config = HashMap::with_capacity(Config::ALLOWED_SERVER_OPTIONS.len());
+    utils::read_file_into_hash(config_path.to_str().unwrap(), Some(&Config::ALLOWED_SERVER_OPTIONS), &mut config).unwrap();
 
     // println!("runtime: {}", runtime.elapsed().as_micros());
 
-    Globals {
-      globals
+    Config {
+      config
     }
     
   }
