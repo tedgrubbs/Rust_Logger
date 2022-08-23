@@ -57,10 +57,37 @@ fn error(err: String) -> io::Error {
   io::Error::new(io::ErrorKind::Other, err)
 }
 
+async fn remove_expired_cookies() -> Result<(), Box<dyn std::error::Error>> {
 
+  loop {
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(600)).await;
+
+    println!("Checking for dead cookies");
+    let mut dead_cookies: Vec<String> = Vec::new();
+    let mut jar = JAR.lock_mut()?;
+
+    for c in jar.iter() {
+      if c.expires_datetime().unwrap() < cookie::time::OffsetDateTime::now_utc() {
+        dead_cookies.push(c.name().to_string());
+      }
+    }
+
+    for c in dead_cookies {
+      println!("Expired {}", c);
+      jar.remove(Cookie::named(c));
+    }
+
+  }
+}
 
 #[tokio::main]
 async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+
+  // thread to continously check for expired cookies
+  tokio::spawn(async {
+    remove_expired_cookies().await.unwrap();
+  });
 
   // First parameter is port number (optional, defaults to 1337)
   let addr = format!("0.0.0.0:{}", CONFIG.get("server_port").unwrap()).parse()?;
@@ -353,7 +380,7 @@ async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection,
     let mut jar = JAR.lock_mut().unwrap();
     let mut new_cookie = Cookie::new(new_cookie_name.to_owned(), form_password.to_owned());
     let mut now = cookie::time::OffsetDateTime::now_utc();
-    now += cookie::time::Duration::seconds(10);
+    now += cookie::time::Duration::seconds(600); // cookie is good for 10 minutes
     new_cookie.set_expires(now);
     jar.add(new_cookie);
   };
@@ -373,8 +400,7 @@ async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection,
 fn check_cookie(headers: &hyper::HeaderMap, conn: &mut Connection) -> String {
   
   let mut password = String::new();
-  let mut jar = JAR.lock_mut().unwrap();
-  let mut expired = String::new();
+  let jar = JAR.lock_mut().unwrap();
   let mut has_cookie = false;
 
   for c in headers.get_all("cookie").iter() {
@@ -389,7 +415,6 @@ fn check_cookie(headers: &hyper::HeaderMap, conn: &mut Connection) -> String {
         if expiration_time.is_some() && cookie::time::OffsetDateTime::now_utc() > expiration_time.unwrap() {
           println!("Expired");
           set_response_error(conn, "Login expired".to_string());
-          expired = cookie.name().to_string();
         }
         break;
 
@@ -403,10 +428,6 @@ fn check_cookie(headers: &hyper::HeaderMap, conn: &mut Connection) -> String {
 
   if !has_cookie {
     set_response_error(conn, "Unauthorized, must login".to_string());
-  }
-
-  if !expired.is_empty() {
-    jar.force_remove(&Cookie::named(expired));
   }
 
   password
