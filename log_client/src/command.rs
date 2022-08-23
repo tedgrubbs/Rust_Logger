@@ -280,8 +280,9 @@ impl Command<'_> {
     // let mut compressed_data_file = fs::File::create(&output_filename)?;
     // compressed_data_file.write_all(&compressed_data)?;
 
+    // filename will be set in main.rs
     let command_outputs = OutputInfo {
-      filename: Some(output_filename),
+      filename: None,
       input_directory: env::current_dir().unwrap().file_name().unwrap().to_os_string(),
       hash: Some(hex::encode(hash)),
       compressed_dir: Some(compressed_data),

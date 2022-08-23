@@ -33,6 +33,18 @@ fn main() {
     compress_only = true;
   }
 
+
+  let mut filename = String::new();
+  match args.iter().position(|x| x == "--name") {
+    Some(v) => {
+      filename = args[v+1].to_string();
+      args.remove(v);
+      args.remove(v);
+    },
+    None => ()
+  };
+  println!("{:?}", args);
+
   let mut cmd = Command::command(args, user.db_table.get("tracked_files").unwrap().split_whitespace().collect());
   let tracking_info = cmd.track_files().unwrap();
 
@@ -48,11 +60,12 @@ fn main() {
     
   
 
-  let output_info = match compress_only {
+  let mut output_info = match compress_only {
     false => cmd.execute().unwrap(),
     true => cmd.compress_and_hash().unwrap()
   };
 
+  output_info.filename = Some(filename);
   user.send_output(output_info);
   
 

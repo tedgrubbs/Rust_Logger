@@ -5,6 +5,7 @@
 //! hyper will automatically use HTTP/2 if a client starts talking HTTP/2,
 //! otherwise HTTP/1.1 will be used.
 use core::task::{Context, Poll};
+use std::io::Read;
 use futures_util::{ready, StreamExt};
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
@@ -14,7 +15,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
-use std::{fs, io, io::Write, sync};
+use std::{fs, io, io::Write as iowritetrait, sync};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_rustls::rustls::ServerConfig;
 use rand::{thread_rng, Rng};
@@ -22,18 +23,26 @@ use rand::distributions::Alphanumeric;
 use mongodb::{bson::doc, options::ClientOptions, Client};
 use nix::unistd;
 
+use html_builder::*;
+use cookie::{Cookie, CookieJar};
+use std::fmt::Write;
 
 use tls_server::processor::*;
 use tls_server::connection::*;
-use tls_server::globals::*;
+use tls_server::config::*;
+
+
 
 #[macro_use]
 extern crate lazy_static;
 
 // sets up global configuration settings
 lazy_static! {
-  static ref CONFIG: std::collections::HashMap<String, String> = Globals::new().globals;
+  static ref CONFIG: std::collections::HashMap<String, String> = Config::new().config;
 }
+
+// cookie jar for managing logins
+static JAR: global::Global<CookieJar> = global::Global::new();
 
 fn main() {
 
@@ -48,10 +57,37 @@ fn error(err: String) -> io::Error {
   io::Error::new(io::ErrorKind::Other, err)
 }
 
+async fn remove_expired_cookies() -> Result<(), Box<dyn std::error::Error>> {
 
+  loop {
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(600)).await;
+
+    println!("Checking for dead cookies");
+    let mut dead_cookies: Vec<String> = Vec::new();
+    let mut jar = JAR.lock_mut()?;
+
+    for c in jar.iter() {
+      if c.expires_datetime().unwrap() < cookie::time::OffsetDateTime::now_utc() {
+        dead_cookies.push(c.name().to_string());
+      }
+    }
+
+    for c in dead_cookies {
+      println!("Expired {}", c);
+      jar.remove(Cookie::named(c));
+    }
+
+  }
+}
 
 #[tokio::main]
 async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+
+  // thread to continously check for expired cookies
+  tokio::spawn(async {
+    remove_expired_cookies().await.unwrap();
+  });
 
   // First parameter is port number (optional, defaults to 1337)
   let addr = format!("0.0.0.0:{}", CONFIG.get("server_port").unwrap()).parse()?;
@@ -196,13 +232,9 @@ impl Accept for TlsAcceptor {
   }
 }
 
-fn set_response_error(mut response: Response<Body>, err: String) -> std::result::Result<Response<Body>, hyper::Error> {
-
-  *response.status_mut() = StatusCode::UNAUTHORIZED;
+fn set_response_error(conn: &mut Connection, err: String) {
   println!("Error! {}", err);
-  *response.body_mut() = Body::from(err);
-  Ok(response)
-
+  conn.err = Some(err);
 }
 
 async fn get_db_conn(username: &str, password: &str, database: &str) -> std::result::Result<Client, mongodb::error::Error> {
@@ -227,176 +259,440 @@ async fn get_db_conn(username: &str, password: &str, database: &str) -> std::res
 
 }
 
-// Custom echo service, handling two different routes and a
-// catch-all 404 responder.
 async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
   
   let mut response = Response::new(Body::empty());
 
   // getting connection info from request headers
-  let conn = match Connection::get_conn_info(&req) {
-    Ok(v) => v,
-    Err(err) => {
-      return set_response_error(response, err.to_string())
-    }
+  let mut conn = Connection::get_conn_info(&req);
 
+  // querying through web browser
+  if req.method() == &Method::GET && req.uri().path().contains("/query/") {
+
+    query(&mut response, &mut conn, req).await;
+
+  } else {
+
+    // normal API for everything else
+    match (req.method(), req.uri().path()) {
+
+      // home page in browser
+      (&Method::GET, "/") => {
+        home_page(&mut response).await;
+      },
+
+      // after providing password through GET page
+      (&Method::GET, "/collections") => {
+        show_collections(&mut response, &mut conn, req.headers()).await;
+      },
+
+      (&Method::POST, "/login") => {
+        web_login(&mut response, &mut conn, req).await;
+      },
+
+      // for the usual uploading of data
+      (&Method::POST, "/upload") => {
+        upload(&mut response, &mut conn, req).await;
+      }
+
+      // method for checking if record id exists in database
+      (&Method::POST, "/check") => {
+        check(&mut response, &mut conn).await;
+      }
+
+      // method for cleaning up files left on disk but deleted from database
+      (&Method::POST, "/cleanup") => {
+        cleanup(&mut response, &mut conn).await;
+      }
+
+      // method for creating a new user
+      (&Method::POST, "/register") => {
+        register(&mut response, &mut conn).await;
+      }
+
+      // Catch-all 404.
+      _ => {
+        *response.status_mut() = StatusCode::NOT_FOUND;
+      }
+    };
+  }
+
+  // check for any errors
+  match conn.err {
+    Some(err) => {
+      *response.status_mut() = StatusCode::UNAUTHORIZED;
+      *response.body_mut() = Body::from(err);
+    },
+    None => ()
   };
 
-  match (req.method(), req.uri().path()) {
-
-    // for the usual uploading of simulation data
-    (&Method::POST, "/upload") => {
-
-      // Connecting to database 
-      let client = match get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await {
-        Ok(c) => c,
-        Err(err) => {
-          return set_response_error(response, err.to_string())
-        }
-      };
-
-      // checking if file already exists in database
-      let v: Vec<_> = Connection::simple_db_query(&client, "upload_hash", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.collect().await;
-      if v.len() > 0 {
-        return set_response_error(response, "File already exists cancelling upload".to_string());
-      }
-
-      // Await the full body to be concatenated into a single `Bytes`...
-      let full_body = hyper::body::to_bytes(req.into_body()).await?;
-
-      
-      // Starting thread here to return response immediately to user
-      tokio::spawn(async move {
-        let mut new_filename = String::new();
-        new_filename.push_str(CONFIG.get("data_path").unwrap());
-        new_filename.push_str(&conn.filehash);
-        new_filename.push('_');
-        new_filename.push_str(&conn.filename);
-
-        let mut outputfile = fs::File::create(&new_filename).expect("File creation failed");
-        outputfile.write_all(&full_body).expect("File write failed");
-        outputfile.flush().unwrap();
-        
-        // Leaving server code to process data into database
-        let processor = Processor::new(new_filename, conn, client);
-        processor.process_data().await.unwrap();
-
-      });
-      
-
-      *response.body_mut() = Body::from("Data received");
-    }
-
-    // method for checking if record id exists in database
-    (&Method::POST, "/check") => {
-
-      // Connecting to database 
-      let client = match get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await {
-        Ok(c) => c,
-        Err(err) => {
-          return set_response_error(response, err.to_string())
-        }
-      };
-
-      // checking if record id already exists in database
-      let coll = conn.filehash.split(':').next().unwrap(); // get collection name from id
-
-      let v: Vec<_> = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), coll, None).await.collect().await;
-      if v.len() > 0 {
-        response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("1").unwrap());
-      } else {
-        response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("0").unwrap());
-      }
-
-    }
-
-    // method for cleaning up files left on disk but deleted from database
-    (&Method::POST, "/cleanup") => {
-
-      // Connecting to database      
-      let client = match get_db_conn("admin", &conn.password, "admin").await {
-        Ok(c) => c,
-        Err(err) => {
-          return set_response_error(response, err.to_string())
-        }
-      };
-
-      let files = fs::read_dir(CONFIG.get("data_path").unwrap()).unwrap();
-      let mut result_string = String::new();
-      let database = client.database(CONFIG.get("database").unwrap());
-
-      // for each file need to check every collection to see if it exists
-      // if it doesn't then we delete it
-      for f in files {
-
-        let filepath = f.as_ref().unwrap().path().into_os_string();
-        let mut in_database = false;
-
-        for collection in database.list_collection_names(None).await.unwrap() {
-          let v: Vec<_> = Connection::simple_db_query(&client, "upload_path", filepath.to_str().unwrap(), CONFIG.get("database").unwrap(), &collection, None).await.collect().await;
-          if v.len() != 0 {
-            in_database = true;
-            break;
-          }
-        }
-
-        if !in_database  {
-          result_string.push_str(filepath.to_str().unwrap());
-          result_string.push('\n');
-          fs::remove_file(filepath).unwrap();
-        }
-        
-      }
-      
-
-      *response.body_mut() = Body::from(result_string);
-    }
-
-    // method for creating a new user
-    (&Method::POST, "/register") => {
-
-      // Connecting to database      
-      let client = match get_db_conn("admin", &conn.password, "admin").await {
-        Ok(c) => c,
-        Err(err) => {
-          return set_response_error(response, err.to_string())
-        }
-      };
-
-      // Creating new password for user
-      let new_key: String = thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(64)
-        .map(char::from)
-        .collect();
-      
-      // Adding password to response here, so it will be returned even if cannot make new user. But the password won't be valid
-      // if the user is not added
-      response.headers_mut().insert("key", hyper::header::HeaderValue::from_str(&new_key).unwrap());
-
-      let user_creation_result = client.database(CONFIG.get("database").unwrap())
-      .run_command(doc! {
-        "createUser": conn.username,
-        "pwd": new_key,
-        "roles": [{"role": "readWrite", "db": CONFIG.get("database").unwrap()}]
-      }, None)
-      .await;
-
-      match user_creation_result {
-        Ok(_) => *response.body_mut() = Body::from("New user created successfully"),
-        Err(err) => {
-          return set_response_error(response, err.to_string())
-        }
-      };
-
-    }
-
-    // Catch-all 404.
-    _ => {
-      *response.status_mut() = StatusCode::NOT_FOUND;
-    }
-  };
   Ok(response)
+}
+
+#[derive(PartialEq)]
+enum Webpage {
+  Home,
+  Collection,
+  Query
+}
+
+fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) -> Result<Buffer, Box<dyn std::error::Error>> {
+
+  let mut buf = Buffer::new();
+  writeln!(buf, "<!-- My website -->")?;
+  buf.doctype();
+  let mut html = buf.html().attr("lang='en'");
+  let mut head = html.head();
+  writeln!(head.title(), "LAMMPS SERVER")?; 
+  head.meta().attr("charset='utf-8'");
+
+  let mut body = html.body().attr("style='background-color:#808080;'");
+
+  match pagename {
+    Some(name) => writeln!(body.h1(), "{}", name)?,
+    None => writeln!(body.h1(), "Rust_Logger")?
+  }; 
+
+  if page == Webpage::Home {
+    let mut form = body.form().attr("action='/login' method='post'");
+    form.input().attr("type='password' id='password' name='password'");
+    form.input().attr("type='submit' value='Enter'");
+  }
+
+  if page == Webpage::Collection || page == Webpage::Query {
+
+    let mut htmllist = body.ul();
+
+    for collection_name in list.unwrap() {
+
+      match page {
+
+        Webpage::Query => {
+          let mut file_string = String::from("");
+          file_string.push_str(&collection_name);
+          let file_string = file_string.split_once(CONFIG.get("data_path").unwrap()).unwrap().1;
+
+          writeln!(
+            htmllist.li().a().attr(
+                &format!("href='{}' download", file_string)
+            ),
+            "{}", file_string,
+          ).unwrap()
+        },
+
+        Webpage::Collection => {
+          let mut query_endpoint = "query/".to_string();
+          query_endpoint.push_str(&collection_name);
+          writeln!(
+            htmllist.li().a().attr(
+                &format!("href='{}'", query_endpoint)
+            ),
+            "{}", collection_name,
+          ).unwrap()
+        }
+
+        _ => {}
+
+      };
+    
+    } 
+    
+  }
+
+  Ok(buf)
+}
+
+async fn home_page(response: &mut hyper::Response<Body>) {
+
+  let buf = build_html(Webpage::Home, None, None).unwrap();
+  *response.body_mut() = Body::from(buf.finish());
+  
+}
+
+async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) {
+
+  let form_password = String::from_utf8(hyper::body::to_bytes(req.into_body()).await.unwrap().to_ascii_lowercase()).unwrap();
+  let form_password = form_password.split_once("=").unwrap().1;
+
+  // Connecting to database to verify user 
+  let _client = match get_db_conn(&conn.username, form_password, "admin").await {
+    Ok(c) => c,
+    Err(err) => {
+      return set_response_error(conn, err.to_string())
+    }
+  };
+  
+
+  // creating new cookie
+  let headers = response.headers_mut();
+
+  // Creating new random cookie string
+  let new_cookie_name: String = thread_rng()
+  .sample_iter(&Alphanumeric)
+  .take(8)
+  .map(char::from)
+  .collect();
+
+  // password was correct so can store password in cookie jar
+  {
+    let mut jar = JAR.lock_mut().unwrap();
+    let mut new_cookie = Cookie::new(new_cookie_name.to_owned(), form_password.to_owned());
+    let mut now = cookie::time::OffsetDateTime::now_utc();
+    now += cookie::time::Duration::seconds(600); // cookie is good for 10 minutes
+    new_cookie.set_expires(now);
+    jar.add(new_cookie);
+  };
+
+  headers.insert(hyper::header::SET_COOKIE, hyper::header::HeaderValue::from_str(&new_cookie_name).unwrap());
+
+
+  let mut buf = Buffer::new();
+  writeln!(buf, "<!-- My website -->").unwrap();
+  buf.doctype();
+  let mut html = buf.html().attr("lang='en'");
+  let mut head = html.head();
+  head.meta().attr("http-equiv='refresh' content='0; URL=/collections'");
+  *response.body_mut() = Body::from(buf.finish());
+}
+
+fn check_cookie(headers: &hyper::HeaderMap, conn: &mut Connection) -> String {
+  
+  let mut password = String::new();
+  let jar = JAR.lock_mut().unwrap();
+  let mut has_cookie = false;
+
+  for c in headers.get_all("cookie").iter() {
+
+    match jar.get(c.to_str().unwrap()) {
+
+      Some(cookie) => {
+
+        password = cookie.value().to_string();
+        has_cookie = true;
+        let expiration_time = cookie.expires_datetime();
+        if expiration_time.is_some() && cookie::time::OffsetDateTime::now_utc() > expiration_time.unwrap() {
+          println!("Expired");
+          set_response_error(conn, "Login expired".to_string());
+        }
+        break;
+
+      },
+
+      None => ()
+
+    }
+
+  }
+
+  if !has_cookie {
+    set_response_error(conn, "Unauthorized, must login".to_string());
+  }
+
+  password
+}
+
+async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) {
+  
+  let uri_path = req.uri().path();
+  let collection = uri_path.split_once("query/").unwrap().1;
+
+  let password = check_cookie(req.headers(), conn);
+  if conn.err.is_some() { return }
+
+  // if tar.gz in the name assume you are grabbing a file.
+  if uri_path.contains("tar.gz") {
+    let mut filestring = CONFIG.get("data_path").unwrap().to_string();
+    filestring.push_str(collection);
+    let mut file = fs::File::open(filestring).unwrap();
+    let mut file_buf: Vec<u8> = Vec::new();
+    file.read_to_end(&mut file_buf).unwrap();
+
+    response.headers_mut().insert("Content-Type", hyper::header::HeaderValue::from_str("application/octet-stream").unwrap());
+    *response.body_mut() = Body::from(file_buf);
+    // *response.status_mut() = StatusCode::OK; // need to retun OK status code or it will not trigger the auto download
+    return 
+  }
+
+  // Connecting to database 
+  let client = match get_db_conn(&conn.username, &password, "admin").await {
+    Ok(c) => c,
+    Err(err) => {
+      return set_response_error(conn, err.to_string())
+    }
+  };
+
+
+  // getting all upload paths to present to user
+  let db = client.database(CONFIG.get("database").unwrap()).collection::<bson::Document>(collection);
+  let findopts = mongodb::options::FindOptions::builder().projection(doc! { "upload_path": 1 }).build();
+  let cursor = db.find(None, findopts).await.unwrap();
+  let res: Vec<String> = cursor.map(|x| x.unwrap().get_str("upload_path").unwrap().to_string()).collect().await;
+ 
+  let buf = build_html(Webpage::Query, Some(res), Some(collection)).unwrap();
+
+  // Finally, call finish() to extract the buffer.
+  *response.body_mut() = Body::from(buf.finish());
+}
+
+async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Connection, req: &hyper::HeaderMap) {
+  
+  let password = check_cookie(req, conn);
+  if conn.err.is_some() { return }
+  
+  
+  // Connecting to database to verify user and get collection list 
+  let client = match get_db_conn(&conn.username, &password, "admin").await {
+    Ok(c) => c,
+    Err(err) => {
+      return set_response_error(conn, err.to_string())
+    }
+  };
+
+  
+  // Get a handle to a database.
+  let db = client.database(CONFIG.get("database").unwrap());
+  
+  let buf = build_html(Webpage::Collection, Some(db.list_collection_names(None).await.unwrap()), None).unwrap();
+  
+  // Finally, call finish() to extract the buffer.
+  *response.body_mut() = Body::from(buf.finish());
+
+}
+
+async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) {
+  // Connecting to database 
+  let client = match get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await {
+    Ok(c) => c,
+    Err(err) => {
+      return set_response_error(conn, err.to_string())
+    }
+  };
+
+  // checking if file already exists in database
+  let v: Vec<_> = Connection::simple_db_query(&client, "upload_hash", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.collect().await;
+  if v.len() > 0 {
+    return set_response_error(conn, "File already exists cancelling upload".to_string());
+  }
+
+  // Await the full body to be concatenated into a single `Bytes`...
+  let full_body = hyper::body::to_bytes(req.into_body()).await.unwrap();
+
+  
+  // Starting thread here to return response immediately to user
+  // tokio::spawn(async move {
+  let mut new_filename = String::new();
+  new_filename.push_str(CONFIG.get("data_path").unwrap());
+  if &conn.filename != "" {
+    new_filename.push_str(&conn.filename);
+  } else {
+    new_filename.push_str(&conn.filehash);
+  }
+  new_filename.push_str(".tar.gz");
+
+  let mut outputfile = fs::File::create(&new_filename).expect("File creation failed");
+  outputfile.write_all(&full_body).expect("File write failed");
+  outputfile.flush().unwrap();
+  
+  // Leaving server code to process data into database
+  let processor = Processor::new(new_filename, conn.clone(), client);
+  processor.process_data().await.unwrap();
+
+  // });
+  
+
+  *response.body_mut() = Body::from("Data received");
+}
+
+async fn check(response: &mut hyper::Response<Body>, conn: &mut Connection) {
+  // Connecting to database 
+  let client = match get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await {
+    Ok(c) => c,
+    Err(err) => {
+      return set_response_error(conn, err.to_string())
+    }
+  };
+
+  // checking if record id already exists in database
+  let coll = conn.filehash.split(':').next().unwrap(); // get collection name from id
+
+  let v: Vec<_> = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), coll, None).await.collect().await;
+  if v.len() > 0 {
+    response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("1").unwrap());
+  } else {
+    response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("0").unwrap());
+  }
+}
+
+async fn cleanup(response: &mut hyper::Response<Body>, conn: &mut Connection) {
+  // Connecting to database      
+  let client = match get_db_conn("admin", &conn.password, "admin").await {
+    Ok(c) => c,
+    Err(err) => {
+      return set_response_error(conn, err.to_string())
+    }
+  };
+
+  let files = fs::read_dir(CONFIG.get("data_path").unwrap()).unwrap();
+  let mut result_string = String::new();
+  let database = client.database(CONFIG.get("database").unwrap());
+
+  // for each file need to check every collection to see if it exists
+  // if it doesn't then we delete it
+  for f in files {
+
+    let filepath = f.as_ref().unwrap().path().into_os_string();
+    let mut in_database = false;
+
+    for collection in database.list_collection_names(None).await.unwrap() {
+      let v: Vec<_> = Connection::simple_db_query(&client, "upload_path", filepath.to_str().unwrap(), CONFIG.get("database").unwrap(), &collection, None).await.collect().await;
+      if v.len() != 0 {
+        in_database = true;
+        break;
+      }
+    }
+
+    if !in_database  {
+      result_string.push_str(filepath.to_str().unwrap());
+      result_string.push('\n');
+      fs::remove_file(filepath).unwrap();
+    }
+    
+  }
+  
+
+  *response.body_mut() = Body::from(result_string);
+}
+
+async fn register(response: &mut hyper::Response<Body>, conn: &mut Connection) {
+  // Connecting to database      
+  let client = match get_db_conn("admin", &conn.password, "admin").await {
+    Ok(c) => c,
+    Err(err) => return set_response_error(conn, err.to_string())
+  };
+
+  // Creating new password for user
+  let new_key: String = thread_rng()
+    .sample_iter(&Alphanumeric)
+    .take(64)
+    .map(char::from)
+    .collect();
+  
+  // Adding password to response here, so it will be returned even if cannot make new user. But the password won't be valid
+  // if the user is not added
+  response.headers_mut().insert("key", hyper::header::HeaderValue::from_str(&new_key).unwrap());
+
+  let user_creation_result = client.database(CONFIG.get("database").unwrap())
+  .run_command(doc! {
+    "createUser": &conn.username,
+    "pwd": new_key,
+    "roles": [{"role": "readWrite", "db": CONFIG.get("database").unwrap()}]
+  }, None)
+  .await;
+
+  match user_creation_result {
+    Ok(_) => *response.body_mut() = Body::from("New user created successfully"),
+    Err(err) => return set_response_error(conn, err.to_string())
+  };
 }
 
 // Load public certificate from file.

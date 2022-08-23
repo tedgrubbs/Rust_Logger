@@ -7,7 +7,7 @@ use tar::Archive;
 use similar::{TextDiff};
 
 use crate::connection::*;
-use crate::globals::*;
+use crate::config::*;
 use utils::utils;
 use chrono;
 
@@ -22,7 +22,7 @@ pub struct Processor {
 impl Processor {
 
   pub fn new(file_path: String, conn: Connection, db_client: Client) -> Processor {
-    Processor { file_path, conn, db_client, config: Globals::new().globals}
+    Processor { file_path, conn, db_client, config: Config::new().config}
   }
 
   
@@ -388,8 +388,8 @@ impl Processor {
     let coll_name = &self.conn.collection;
 
     // inserting general upload metadata
-    parent_doc.insert("upload_hash", &self.conn.filehash);
     parent_doc.insert("upload_name", &self.conn.filename);
+    parent_doc.insert("upload_hash", &self.conn.filehash);
     parent_doc.insert("upload_path", &self.file_path);
     parent_doc.insert("upload_time", chrono::offset::Utc::now());
     
