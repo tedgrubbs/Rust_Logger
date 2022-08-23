@@ -6,7 +6,7 @@
 //! otherwise HTTP/1.1 will be used.
 use core::task::{Context, Poll};
 use std::io::Read;
-use futures_util::{ready, StreamExt, TryStreamExt};
+use futures_util::{ready, StreamExt};
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
 use hyper::service::{make_service_fn, service_fn};
@@ -329,24 +329,82 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
   Ok(response)
 }
 
-async fn home_page(response: &mut hyper::Response<Body>) {
+#[derive(PartialEq)]
+enum Webpage {
+  Home,
+  Collection,
+  Query
+}
+
+fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) -> Result<Buffer, Box<dyn std::error::Error>> {
 
   let mut buf = Buffer::new();
-  writeln!(buf, "<!-- My website -->").unwrap();
+  writeln!(buf, "<!-- My website -->")?;
   buf.doctype();
   let mut html = buf.html().attr("lang='en'");
   let mut head = html.head();
-  writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
+  writeln!(head.title(), "LAMMPS SERVER")?; 
   head.meta().attr("charset='utf-8'");
 
   let mut body = html.body().attr("style='background-color:#808080;'");
-  writeln!(body.h1(), "Rust_Logger").unwrap();
 
-  let mut form = body.form().attr("action='/login' method='post'");
-  form.input().attr("type='password' id='password' name='password'");
-  form.input().attr("type='submit' value='Enter'");
+  match pagename {
+    Some(name) => writeln!(body.h1(), "{}", name)?,
+    None => writeln!(body.h1(), "Rust_Logger")?
+  }; 
 
-  // Finally, call finish() to extract the buffer.
+  if page == Webpage::Home {
+    let mut form = body.form().attr("action='/login' method='post'");
+    form.input().attr("type='password' id='password' name='password'");
+    form.input().attr("type='submit' value='Enter'");
+  }
+
+  if page == Webpage::Collection || page == Webpage::Query {
+
+    let mut htmllist = body.ul();
+
+    for collection_name in list.unwrap() {
+
+      match page {
+
+        Webpage::Query => {
+          let mut file_string = String::from("");
+          file_string.push_str(&collection_name);
+          let file_string = file_string.split_once(CONFIG.get("data_path").unwrap()).unwrap().1;
+
+          writeln!(
+            htmllist.li().a().attr(
+                &format!("href='{}' download", file_string)
+            ),
+            "{}", file_string,
+          ).unwrap()
+        },
+
+        Webpage::Collection => {
+          let mut query_endpoint = "query/".to_string();
+          query_endpoint.push_str(&collection_name);
+          writeln!(
+            htmllist.li().a().attr(
+                &format!("href='{}'", query_endpoint)
+            ),
+            "{}", collection_name,
+          ).unwrap()
+        }
+
+        _ => {}
+
+      };
+    
+    } 
+    
+  }
+
+  Ok(buf)
+}
+
+async fn home_page(response: &mut hyper::Response<Body>) {
+
+  let buf = build_html(Webpage::Home, None, None).unwrap();
   *response.body_mut() = Body::from(buf.finish());
   
 }
@@ -393,7 +451,7 @@ async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection,
   buf.doctype();
   let mut html = buf.html().attr("lang='en'");
   let mut head = html.head();
-  head.meta().attr("http-equiv='refresh' content='0; URL=https://localhost:1241/collections'");
+  head.meta().attr("http-equiv='refresh' content='0; URL=/collections'");
   *response.body_mut() = Body::from(buf.finish());
 }
 
@@ -445,30 +503,15 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
   if uri_path.contains("tar.gz") {
     let mut filestring = CONFIG.get("data_path").unwrap().to_string();
     filestring.push_str(collection);
-    println!("{}", filestring);
     let mut file = fs::File::open(filestring).unwrap();
     let mut file_buf: Vec<u8> = Vec::new();
     file.read_to_end(&mut file_buf).unwrap();
 
     response.headers_mut().insert("Content-Type", hyper::header::HeaderValue::from_str("application/octet-stream").unwrap());
     *response.body_mut() = Body::from(file_buf);
-    *response.status_mut() = StatusCode::OK; // need to retun OK status code or it will not trigger the auto download
+    // *response.status_mut() = StatusCode::OK; // need to retun OK status code or it will not trigger the auto download
     return 
   }
-
-
-  
-  let mut buf = Buffer::new();
-  writeln!(buf, "<!-- My website -->").unwrap();
-  buf.doctype();
-  let mut html = buf.html().attr("lang='en'");
-  let mut head = html.head();
-  writeln!(head.title(), "LAMMPS SERVER").unwrap();
-  head.meta().attr("charset='utf-8'");
-  let mut body = html.body().attr("style='background-color:#808080;'");
-  writeln!(body.h1(), "{}", &collection).unwrap();
-
-  let mut list = body.ul();
 
   // Connecting to database 
   let client = match get_db_conn(&conn.username, &password, "admin").await {
@@ -478,23 +521,14 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
     }
   };
 
-  let db = client.database(CONFIG.get("database").unwrap()).collection::<bson::Document>(collection);
-  let mut res = db.find(None, None).await.unwrap();
-  
-  while let Some(doc) = res.try_next().await.unwrap() {
-    
-    let mut file_string = String::from("");
-    file_string.push_str(doc.get("upload_path").unwrap().as_str().unwrap());
-    let file_string = file_string.split_once(CONFIG.get("data_path").unwrap()).unwrap().1;
 
-    writeln!(
-      list.li().a().attr(
-          &format!("href='{}' download", file_string)
-      ),
-      "{}", file_string,
-    ).unwrap()
-    
-  }
+  // getting all upload paths to present to user
+  let db = client.database(CONFIG.get("database").unwrap()).collection::<bson::Document>(collection);
+  let findopts = mongodb::options::FindOptions::builder().projection(doc! { "upload_path": 1 }).build();
+  let cursor = db.find(None, findopts).await.unwrap();
+  let res: Vec<String> = cursor.map(|x| x.unwrap().get_str("upload_path").unwrap().to_string()).collect().await;
+ 
+  let buf = build_html(Webpage::Query, Some(res), Some(collection)).unwrap();
 
   // Finally, call finish() to extract the buffer.
   *response.body_mut() = Body::from(buf.finish());
@@ -514,32 +548,11 @@ async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Conne
     }
   };
 
-  let mut buf = Buffer::new();
-  writeln!(buf, "<!-- My website -->").unwrap();
-  buf.doctype();
-  let mut html = buf.html().attr("lang='en'");
-  let mut head = html.head();
-  writeln!(head.title(), "LAMMPS SERVER").unwrap();
-  head.meta().attr("charset='utf-8'");
-  let mut body = html.body().attr("style='background-color:#808080;'");
-  writeln!(body.h1(), "Rust_Logger").unwrap();
   
   // Get a handle to a database.
   let db = client.database(CONFIG.get("database").unwrap());
-  let mut list = body.ul();
-  // List the names of the collections in that database.
-  for collection_name in db.list_collection_names(None).await.unwrap() {
-
-    let mut query_endpoint = "query/".to_string();
-    query_endpoint.push_str(&collection_name);
-    writeln!(
-      list.li().a().attr(
-          &format!("href='{}'", query_endpoint)
-      ),
-      "{}", collection_name,
-    ).unwrap()
-
-  }
+  
+  let buf = build_html(Webpage::Collection, Some(db.list_collection_names(None).await.unwrap()), None).unwrap();
   
   // Finally, call finish() to extract the buffer.
   *response.body_mut() = Body::from(buf.finish());
