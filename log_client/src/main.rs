@@ -49,23 +49,30 @@ fn main() {
   let tracking_info = cmd.track_files().unwrap();
 
   // if need to update record, should communicate with server to check if current record id exists
-  if user.check_id(tracking_info) {
+  let og_upload_name = user.check_id(tracking_info);
+  if og_upload_name != "DNE" {
     if cmd.needs_update {
       println!("Record exists, can update");
       cmd.update_record()
     }
   } else if cmd.record_file_hashes.get("parent_id").unwrap() != "*" { // if parent id is * then it's a new branch and there is no problem
-    panic!("Error: Previous record not found in database, revert changes or delete REV file to create a new branch");
+    println!("Error: Previous record not found in database, revert changes or delete REV file to create a new branch");
+    return
   }
     
-  
-
   let mut output_info = match compress_only {
     false => cmd.execute().unwrap(),
     true => cmd.compress_and_hash().unwrap()
   };
 
-  output_info.filename = Some(filename);
+  // if record does not exist, use currently provided filename 
+  // if does exists and no new filename is given, use old filename
+  if og_upload_name != "DNE" && filename.is_empty() {
+    output_info.filename = Some(og_upload_name);
+  } else {
+    output_info.filename = Some(filename);
+  }
+  
   user.send_output(output_info);
   
 

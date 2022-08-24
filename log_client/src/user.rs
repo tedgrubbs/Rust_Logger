@@ -82,15 +82,9 @@ impl User {
     self.send_data(Endpoint::UPLOAD, Some(output_info));
   }
 
-  pub fn check_id(&self, output_info: OutputInfo) -> bool {
+  pub fn check_id(&self, output_info: OutputInfo) -> String {
     let result = self.send_data(Endpoint::ID_CHECK, Some(output_info)).unwrap();
-    
-    match result.get("id_exists").unwrap().as_bytes() {
-      b"1" => true,
-      b"0" => false,
-      _ => panic!("Error at header return")
-    }
-    
+    result.get("upload_name").unwrap().to_str().unwrap().to_string()
   }
  
 

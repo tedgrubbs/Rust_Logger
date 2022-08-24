@@ -6,7 +6,7 @@
 //! otherwise HTTP/1.1 will be used.
 use core::task::{Context, Poll};
 use std::io::Read;
-use futures_util::{ready, StreamExt};
+use futures_util::{ready, StreamExt, TryStreamExt};
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
 use hyper::service::{make_service_fn, service_fn};
@@ -557,21 +557,21 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
   
   // Starting thread here to return response immediately to user
   // tokio::spawn(async move {
-  let mut new_filename = String::new();
-  new_filename.push_str(CONFIG.get("data_path").unwrap());
+  let mut new_file_path = String::new();
+  new_file_path.push_str(CONFIG.get("data_path").unwrap());
   if &conn.filename != "" {
-    new_filename.push_str(&conn.filename);
+    new_file_path.push_str(&conn.filename);
   } else {
-    new_filename.push_str(&conn.filehash);
+    new_file_path.push_str(&conn.filehash);
   }
-  new_filename.push_str(".tar.gz");
+  new_file_path.push_str(".tar.gz");
 
-  let mut outputfile = fs::File::create(&new_filename).expect("File creation failed");
+  let mut outputfile = fs::File::create(&new_file_path).expect("File creation failed");
   outputfile.write_all(&full_body).expect("File write failed");
   outputfile.flush()?;
   
   // Leaving server code to process data into database
-  let processor = Processor::new(new_filename, conn.clone(), client);
+  let processor = Processor::new(new_file_path, conn.clone(), client);
   processor.process_data().await.unwrap();
 
   // });
@@ -589,12 +589,12 @@ async fn check(response: &mut hyper::Response<Body>, conn: &mut Connection) -> R
   // checking if record id already exists in database
   let coll = conn.filehash.split(':').next().unwrap(); // get collection name from id
 
-  let num_entries = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), coll, None).await.count().await;
-  if num_entries > 0 {
-    response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("1").unwrap());
-  } else {
-    response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("0").unwrap());
-  }
+  let mut cursor = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), coll, Some(doc! {"upload_name": 1})).await;  
+  match cursor.try_next().await.unwrap() {
+    Some(result) => response.headers_mut().insert("upload_name", hyper::header::HeaderValue::from_str(result.get_str("upload_name").unwrap()).unwrap()),
+    None => response.headers_mut().insert("upload_name", hyper::header::HeaderValue::from_str("DNE").unwrap())
+  };
+  
 
   Ok(())
 }
