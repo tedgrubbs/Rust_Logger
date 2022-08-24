@@ -21,7 +21,7 @@ flate2 = "1.0.24"
 tar = "0.4.38"
 chrono = "0.4.21"
 bson = { version = "2.4.0",  features = ["chrono-0_4"] }
-utils = {path = "../../utils"}
+utils = {path = "../utils"}
 similar = "2.2.0"
 serde_json = "1.0.83"
 nix = "0.25.0"

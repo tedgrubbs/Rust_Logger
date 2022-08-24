@@ -318,7 +318,8 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
 
       // Catch-all 404.
       _ => {
-        Box::new("Bruh")
+        let err_404: Box<dyn std::error::Error> = String::from("Bruh, there's no page here.").into();
+        Err(err_404)
       },
 
     } {
@@ -327,7 +328,7 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
   }
 
   if !error.is_empty() {
-    println!("{}", error);
+
     *response.status_mut() = StatusCode::UNAUTHORIZED;
 
     let mut buf = Buffer::new();
@@ -685,7 +686,7 @@ async fn register(response: &mut hyper::Response<Body>, conn: &mut Connection) -
   // if the user is not added
   response.headers_mut().insert("key", hyper::header::HeaderValue::from_str(&new_key).unwrap());
 
-  let user_creation_result = client.database(CONFIG.get("database").unwrap())
+  client.database(CONFIG.get("database").unwrap())
   .run_command(doc! {
     "createUser": &conn.username,
     "pwd": new_key,
