@@ -328,19 +328,8 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
   }
 
   if !error.is_empty() {
-
     *response.status_mut() = StatusCode::UNAUTHORIZED;
-
-    let mut buf = Buffer::new();
-    writeln!(buf, "<!-- My website -->").unwrap();
-    buf.doctype();
-    let mut html = buf.html().attr("lang='en'");
-    let mut head = html.head();
-    writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
-    head.meta().attr("charset='utf-8'");
-
-    let mut body = html.body().attr("style='background-color:#808080;'");
-    writeln!(body, "{}", &error).unwrap();
+    let buf = build_html(Webpage::ErrorPage, None, Some(&error)).unwrap();
     *response.body_mut() = Body::from(buf.finish());
   }
 
@@ -351,7 +340,8 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
 enum Webpage {
   Home,
   Collection,
-  Query
+  Query,
+  ErrorPage
 }
 
 fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) -> Result<Buffer, Box<dyn std::error::Error>> {
