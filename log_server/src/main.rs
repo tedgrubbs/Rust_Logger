@@ -232,9 +232,9 @@ impl Accept for TlsAcceptor {
   }
 }
 
-fn set_response_error(conn: &mut Connection, err: String) {
-  println!("Error! {}", err);
-  conn.err = Some(err);
+fn set_response_error(err: &str) -> Box<dyn std::error::Error> {
+  let error_box: Box<dyn std::error::Error> = String::from(err).into();
+  return error_box
 }
 
 async fn get_db_conn(username: &str, password: &str, database: &str) -> std::result::Result<Client, mongodb::error::Error> {
@@ -317,8 +317,7 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
 
     // Catch-all 404.
     _ => {
-      let err_404: Box<dyn std::error::Error> = String::from("Bruh, there's no page here.").into();
-      Err(err_404)
+      Err(set_response_error("Bruh, there's no page here."))
     },
 
   } {
@@ -327,6 +326,7 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
   // }
 
   if !error.is_empty() {
+    println!("Server Error: {}", error);
     *response.status_mut() = StatusCode::UNAUTHORIZED;
     let buf = build_html(Webpage::ErrorPage, None, Some(&error)).unwrap();
     *response.body_mut() = Body::from(buf.finish());
@@ -340,24 +340,29 @@ enum Webpage {
   Home,
   Collection,
   Query,
-  ErrorPage
+  ErrorPage,
+  LoginRedirect
 }
 
 fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) -> Result<Buffer, Box<dyn std::error::Error>> {
 
   let mut buf = Buffer::new();
-  writeln!(buf, "<!-- My website -->")?;
+  writeln!(buf, "<!-- My website -->").unwrap();
   buf.doctype();
   let mut html = buf.html().attr("lang='en'");
   let mut head = html.head();
-  writeln!(head.title(), "LAMMPS SERVER")?; 
-  head.meta().attr("charset='utf-8'");
+  writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
+
+  if page == Webpage::LoginRedirect {
+    head.meta().attr("http-equiv='refresh' content='0; URL=/collections'");
+    return Ok(buf)
+  }
 
   let mut body = html.body().attr("style='background-color:#808080;'");
 
   match pagename {
-    Some(name) => writeln!(body.h1(), "{}", name)?,
-    None => writeln!(body.h1(), "Rust_Logger")?
+    Some(name) => writeln!(body.h1(), "{}", name).unwrap(),
+    None => writeln!(body.h1(), "Rust_Logger").unwrap()
   }; 
 
   if page == Webpage::Home {
@@ -411,26 +416,19 @@ fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) 
 
 async fn home_page(response: &mut hyper::Response<Body>) -> Result<(), Box<dyn std::error::Error>> {
 
-  let buf = build_html(Webpage::Home, None, None)?;
+  let buf = build_html(Webpage::Home, None, None).unwrap();
   *response.body_mut() = Body::from(buf.finish());
   Ok(())
 }
 
 async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) -> Result<(), Box<dyn std::error::Error>> {
 
-  let form_password = String::from_utf8(hyper::body::to_bytes(req.into_body()).await?.to_ascii_lowercase())?;
+  let form_password = String::from_utf8(hyper::body::to_bytes(req.into_body()).await.unwrap().to_ascii_lowercase()).unwrap();
   let form_password = form_password.split_once("=").unwrap().1;
 
   // Connecting to database to verify user 
-  let _client = match get_db_conn(&conn.username, form_password, "admin").await {
-    Ok(c) => c,
-    Err(err) => {
-      set_response_error(conn, err.to_string());
-      return Ok(())
-    }
-  };
+  get_db_conn(&conn.username, form_password, "admin").await?;
   
-
   // creating new cookie
   let headers = response.headers_mut();
 
@@ -443,7 +441,7 @@ async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection,
 
   // password was correct so can store password in cookie jar
   {
-    let mut jar = JAR.lock_mut()?;
+    let mut jar = JAR.lock_mut().unwrap();
     let mut new_cookie = Cookie::new(new_cookie_name.to_owned(), form_password.to_owned());
     let mut now = cookie::time::OffsetDateTime::now_utc();
     now += cookie::time::Duration::seconds(600); // cookie is good for 10 minutes
@@ -451,51 +449,37 @@ async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection,
     jar.add(new_cookie);
   };
 
-  headers.insert(hyper::header::SET_COOKIE, hyper::header::HeaderValue::from_str(&new_cookie_name)?);
+  headers.insert(hyper::header::SET_COOKIE, hyper::header::HeaderValue::from_str(&new_cookie_name).unwrap());
 
-
-  let mut buf = Buffer::new();
-  writeln!(buf, "<!-- My website -->")?;
-  buf.doctype();
-  let mut html = buf.html().attr("lang='en'");
-  let mut head = html.head();
-  head.meta().attr("http-equiv='refresh' content='0; URL=/collections'");
+  let buf = build_html(Webpage::LoginRedirect, None, None).unwrap();
+  
   *response.body_mut() = Body::from(buf.finish());
 
   Ok(())
 }
 
-fn check_cookie(headers: &hyper::HeaderMap, conn: &mut Connection) -> Result<String, Box<dyn std::error::Error>> {
+fn check_cookie(headers: &hyper::HeaderMap) -> Result<String, Box<dyn std::error::Error>> {
   
   let mut password = String::new();
   let jar = JAR.lock_mut().unwrap();
-  let mut has_cookie = false;
+  let mut cookie_err = true;
 
+  // iterates over cookies from http request, to check if it exists in our cookie jar
   for c in headers.get_all("cookie").iter() {
 
-    match jar.get(c.to_str().unwrap()) {
+    if let Some(cookie) = jar.get(c.to_str().unwrap()) {
 
-      Some(cookie) => {
-
-        password = cookie.value().to_string();
-        has_cookie = true;
-        let expiration_time = cookie.expires_datetime();
-        if expiration_time.is_some() && cookie::time::OffsetDateTime::now_utc() > expiration_time.unwrap() {
-          println!("Expired");
-          set_response_error(conn, "Login expired".to_string());
-        }
-        break;
-
-      },
-
-      None => ()
-
+      password = cookie.value().to_string();
+      let expiration_time = cookie.expires_datetime();
+      if !(expiration_time.is_some() && cookie::time::OffsetDateTime::now_utc() > expiration_time.unwrap()) {
+        cookie_err = false;
+      }
+      break;
     }
-
   }
 
-  if !has_cookie {
-    set_response_error(conn, "Unauthorized, must login".to_string());
+  if cookie_err {
+    return Err(set_response_error("Either your login has expired or you just aren't authorized."))
   }
 
   Ok(password)
@@ -506,7 +490,7 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
   let uri_path = req.uri().path();
   let collection = uri_path.split_once("query/").unwrap().1;
 
-  let password = check_cookie(req.headers(), conn)?;
+  let password = check_cookie(req.headers())?;
 
   // if tar.gz in the name assume you are grabbing a file.
   if uri_path.contains("tar.gz") {
@@ -516,7 +500,7 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
     let mut file_buf: Vec<u8> = Vec::new();
     file.read_to_end(&mut file_buf).unwrap();
 
-    response.headers_mut().insert("Content-Type", hyper::header::HeaderValue::from_str("application/octet-stream")?);
+    response.headers_mut().insert("Content-Type", hyper::header::HeaderValue::from_str("application/octet-stream").unwrap());
     *response.body_mut() = Body::from(file_buf);
     // *response.status_mut() = StatusCode::OK; // need to retun OK status code or it will not trigger the auto download
     return Ok(())
@@ -532,7 +516,7 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
   let cursor = db.find(None, findopts).await?;
   let res: Vec<String> = cursor.map(|x| x.unwrap().get_str("upload_path").unwrap().to_string()).collect().await;
  
-  let buf = build_html(Webpage::Query, Some(res), Some(collection))?;
+  let buf = build_html(Webpage::Query, Some(res), Some(collection)).unwrap();
 
   // Finally, call finish() to extract the buffer.
   *response.body_mut() = Body::from(buf.finish());
@@ -542,7 +526,7 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
 
 async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Connection, req: &hyper::HeaderMap) -> Result<(), Box<dyn std::error::Error>> {
   
-  let password = check_cookie(req, conn)?;
+  let password = check_cookie(req)?;
   
   // Connecting to database to verify user and get collection list 
   let client = get_db_conn(&conn.username, &password, "admin").await?;
@@ -559,23 +543,16 @@ async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Conne
 
 async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) -> Result<(), Box<dyn std::error::Error>> {
   // Connecting to database 
-  let client = match get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await {
-    Ok(c) => c,
-    Err(err) => {
-      set_response_error(conn, err.to_string());
-      return Ok(())
-    }
-  };
+  let client = get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await?;
 
   // checking if file already exists in database
   let num_entries = Connection::simple_db_query(&client, "upload_hash", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
   if num_entries > 0 {
-    set_response_error(conn, "File already exists cancelling upload".to_string());
-    return Ok(())
+    return Err(set_response_error("File already exists cancelling upload"))
   }
 
   // Await the full body to be concatenated into a single `Bytes`...
-  let full_body = hyper::body::to_bytes(req.into_body()).await?;
+  let full_body = hyper::body::to_bytes(req.into_body()).await.unwrap();
 
   
   // Starting thread here to return response immediately to user
@@ -595,7 +572,7 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
   
   // Leaving server code to process data into database
   let processor = Processor::new(new_filename, conn.clone(), client);
-  processor.process_data().await?;
+  processor.process_data().await.unwrap();
 
   // });
   
@@ -627,7 +604,7 @@ async fn cleanup(response: &mut hyper::Response<Body>, conn: &mut Connection) ->
   // Connecting to database      
   let client = get_db_conn("admin", &conn.password, "admin").await?;
 
-  let files = fs::read_dir(CONFIG.get("data_path").unwrap()).unwrap();
+  let files = fs::read_dir(CONFIG.get("data_path").unwrap())?;
   let mut result_string = String::new();
   let database = client.database(CONFIG.get("database").unwrap());
 
@@ -638,7 +615,7 @@ async fn cleanup(response: &mut hyper::Response<Body>, conn: &mut Connection) ->
     let filepath = f.as_ref().unwrap().path().into_os_string();
     let mut in_database = false;
 
-    for collection in database.list_collection_names(None).await.unwrap() {
+    for collection in database.list_collection_names(None).await? {
       let num_entries = Connection::simple_db_query(&client, "upload_path", filepath.to_str().unwrap(), CONFIG.get("database").unwrap(), &collection, None).await.count().await;
       if num_entries != 0 {
         in_database = true;
