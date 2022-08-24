@@ -265,67 +265,66 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
 
   // getting connection info from request headers
   let mut conn = Connection::get_conn_info(&req);
-
   
   let mut error = String::new();
-  
 
-  // querying through web browser
-  if req.method() == &Method::GET && req.uri().path().contains("/query/") {
+  // current endpoints use only the element after the first '/'
+  // so "/query/crack/" only cares about the "/query" part of the endpoint
+  let uri_path = req.uri().path().split("/").nth(1).unwrap();
 
-    if let Result::Err(err) = query(&mut response, &mut conn, req).await {
-      error = err.to_string();
-    };
+  // normal API for everything else
+  if let Result::Err(err) = match (req.method(), uri_path) {
 
-  } else {
+    // home page in browser
+    (&Method::GET, "") => {
+      home_page(&mut response).await 
+    },
 
-    // normal API for everything else
-    if let Result::Err(err) = match (req.method(), req.uri().path()) {
+    // displays files within a collection
+    // Also used to download these files through browser
+    (&Method::GET, "query") => {
+      query(&mut response, &mut conn, req).await 
+    },
 
-      // home page in browser
-      (&Method::GET, "/") => {
-        home_page(&mut response).await 
-      },
+    // after providing password through GET page
+    (&Method::GET, "collections") => {
+      show_collections(&mut response, &mut conn, req.headers()).await
+    },
 
-      // after providing password through GET page
-      (&Method::GET, "/collections") => {
-        show_collections(&mut response, &mut conn, req.headers()).await
-      },
+    (&Method::POST, "login") => {
+      web_login(&mut response, &mut conn, req).await
+    },
 
-      (&Method::POST, "/login") => {
-        web_login(&mut response, &mut conn, req).await
-      },
+    // for the usual uploading of data
+    (&Method::POST, "upload") => {
+      upload(&mut response, &mut conn, req).await
+    },
 
-      // for the usual uploading of data
-      (&Method::POST, "/upload") => {
-        upload(&mut response, &mut conn, req).await
-      },
+    // method for checking if record id exists in database
+    (&Method::POST, "check") => {
+      check(&mut response, &mut conn).await
+    },
 
-      // method for checking if record id exists in database
-      (&Method::POST, "/check") => {
-        check(&mut response, &mut conn).await
-      },
+    // method for cleaning up files left on disk but deleted from database
+    (&Method::POST, "cleanup") => {
+      cleanup(&mut response, &mut conn).await
+    },
 
-      // method for cleaning up files left on disk but deleted from database
-      (&Method::POST, "/cleanup") => {
-        cleanup(&mut response, &mut conn).await
-      },
+    // method for creating a new user
+    (&Method::POST, "register") => {
+      register(&mut response, &mut conn).await
+    },
 
-      // method for creating a new user
-      (&Method::POST, "/register") => {
-        register(&mut response, &mut conn).await
-      },
+    // Catch-all 404.
+    _ => {
+      let err_404: Box<dyn std::error::Error> = String::from("Bruh, there's no page here.").into();
+      Err(err_404)
+    },
 
-      // Catch-all 404.
-      _ => {
-        let err_404: Box<dyn std::error::Error> = String::from("Bruh, there's no page here.").into();
-        Err(err_404)
-      },
-
-    } {
-      error = err.to_string();
-    }
+  } {
+    error = err.to_string();
   }
+  // }
 
   if !error.is_empty() {
     *response.status_mut() = StatusCode::UNAUTHORIZED;
@@ -569,8 +568,8 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
   };
 
   // checking if file already exists in database
-  let v: Vec<_> = Connection::simple_db_query(&client, "upload_hash", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.collect().await;
-  if v.len() > 0 {
+  let num_entries = Connection::simple_db_query(&client, "upload_hash", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
+  if num_entries > 0 {
     set_response_error(conn, "File already exists cancelling upload".to_string());
     return Ok(())
   }
@@ -613,8 +612,8 @@ async fn check(response: &mut hyper::Response<Body>, conn: &mut Connection) -> R
   // checking if record id already exists in database
   let coll = conn.filehash.split(':').next().unwrap(); // get collection name from id
 
-  let v: Vec<_> = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), coll, None).await.collect().await;
-  if v.len() > 0 {
+  let num_entries = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), coll, None).await.count().await;
+  if num_entries > 0 {
     response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("1").unwrap());
   } else {
     response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("0").unwrap());
@@ -640,8 +639,8 @@ async fn cleanup(response: &mut hyper::Response<Body>, conn: &mut Connection) ->
     let mut in_database = false;
 
     for collection in database.list_collection_names(None).await.unwrap() {
-      let v: Vec<_> = Connection::simple_db_query(&client, "upload_path", filepath.to_str().unwrap(), CONFIG.get("database").unwrap(), &collection, None).await.collect().await;
-      if v.len() != 0 {
+      let num_entries = Connection::simple_db_query(&client, "upload_path", filepath.to_str().unwrap(), CONFIG.get("database").unwrap(), &collection, None).await.count().await;
+      if num_entries != 0 {
         in_database = true;
         break;
       }
