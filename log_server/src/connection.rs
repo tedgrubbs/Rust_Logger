@@ -2,6 +2,9 @@ use hyper::{Request, Body};
 use mongodb::{bson::{Document}, Client, bson::doc, options::FindOptions};
 
 
+// The Connection struct is used to manage information from any incoming requests.
+
+
 #[derive(Debug,Clone)]
 pub struct Connection {
   pub username: String,

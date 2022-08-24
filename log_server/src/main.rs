@@ -259,72 +259,89 @@ async fn get_db_conn(username: &str, password: &str, database: &str) -> std::res
 
 }
 
-async fn echo(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
   
   let mut response = Response::new(Body::empty());
 
   // getting connection info from request headers
   let mut conn = Connection::get_conn_info(&req);
 
+  
+  let mut error = String::new();
+  
+
   // querying through web browser
   if req.method() == &Method::GET && req.uri().path().contains("/query/") {
 
-    query(&mut response, &mut conn, req).await;
+    if let Result::Err(err) = query(&mut response, &mut conn, req).await {
+      error = err.to_string();
+    };
 
   } else {
 
     // normal API for everything else
-    match (req.method(), req.uri().path()) {
+    if let Result::Err(err) = match (req.method(), req.uri().path()) {
 
       // home page in browser
       (&Method::GET, "/") => {
-        home_page(&mut response).await;
+        home_page(&mut response).await 
       },
 
       // after providing password through GET page
       (&Method::GET, "/collections") => {
-        show_collections(&mut response, &mut conn, req.headers()).await;
+        show_collections(&mut response, &mut conn, req.headers()).await
       },
 
       (&Method::POST, "/login") => {
-        web_login(&mut response, &mut conn, req).await;
+        web_login(&mut response, &mut conn, req).await
       },
 
       // for the usual uploading of data
       (&Method::POST, "/upload") => {
-        upload(&mut response, &mut conn, req).await;
-      }
+        upload(&mut response, &mut conn, req).await
+      },
 
       // method for checking if record id exists in database
       (&Method::POST, "/check") => {
-        check(&mut response, &mut conn).await;
-      }
+        check(&mut response, &mut conn).await
+      },
 
       // method for cleaning up files left on disk but deleted from database
       (&Method::POST, "/cleanup") => {
-        cleanup(&mut response, &mut conn).await;
-      }
+        cleanup(&mut response, &mut conn).await
+      },
 
       // method for creating a new user
       (&Method::POST, "/register") => {
-        register(&mut response, &mut conn).await;
-      }
+        register(&mut response, &mut conn).await
+      },
 
       // Catch-all 404.
       _ => {
-        *response.status_mut() = StatusCode::NOT_FOUND;
-      }
-    };
+        Box::new("Bruh")
+      },
+
+    } {
+      error = err.to_string();
+    }
   }
 
-  // check for any errors
-  match conn.err {
-    Some(err) => {
-      *response.status_mut() = StatusCode::UNAUTHORIZED;
-      *response.body_mut() = Body::from(err);
-    },
-    None => ()
-  };
+  if !error.is_empty() {
+    println!("{}", error);
+    *response.status_mut() = StatusCode::UNAUTHORIZED;
+
+    let mut buf = Buffer::new();
+    writeln!(buf, "<!-- My website -->").unwrap();
+    buf.doctype();
+    let mut html = buf.html().attr("lang='en'");
+    let mut head = html.head();
+    writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
+    head.meta().attr("charset='utf-8'");
+
+    let mut body = html.body().attr("style='background-color:#808080;'");
+    writeln!(body, "{}", &error).unwrap();
+    *response.body_mut() = Body::from(buf.finish());
+  }
 
   Ok(response)
 }
@@ -374,7 +391,7 @@ fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) 
 
           writeln!(
             htmllist.li().a().attr(
-                &format!("href='{}' download", file_string)
+                &format!("href='{}'", file_string)
             ),
             "{}", file_string,
           ).unwrap()
@@ -402,23 +419,24 @@ fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) 
   Ok(buf)
 }
 
-async fn home_page(response: &mut hyper::Response<Body>) {
+async fn home_page(response: &mut hyper::Response<Body>) -> Result<(), Box<dyn std::error::Error>> {
 
-  let buf = build_html(Webpage::Home, None, None).unwrap();
+  let buf = build_html(Webpage::Home, None, None)?;
   *response.body_mut() = Body::from(buf.finish());
-  
+  Ok(())
 }
 
-async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) {
+async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) -> Result<(), Box<dyn std::error::Error>> {
 
-  let form_password = String::from_utf8(hyper::body::to_bytes(req.into_body()).await.unwrap().to_ascii_lowercase()).unwrap();
+  let form_password = String::from_utf8(hyper::body::to_bytes(req.into_body()).await?.to_ascii_lowercase())?;
   let form_password = form_password.split_once("=").unwrap().1;
 
   // Connecting to database to verify user 
   let _client = match get_db_conn(&conn.username, form_password, "admin").await {
     Ok(c) => c,
     Err(err) => {
-      return set_response_error(conn, err.to_string())
+      set_response_error(conn, err.to_string());
+      return Ok(())
     }
   };
   
@@ -435,7 +453,7 @@ async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection,
 
   // password was correct so can store password in cookie jar
   {
-    let mut jar = JAR.lock_mut().unwrap();
+    let mut jar = JAR.lock_mut()?;
     let mut new_cookie = Cookie::new(new_cookie_name.to_owned(), form_password.to_owned());
     let mut now = cookie::time::OffsetDateTime::now_utc();
     now += cookie::time::Duration::seconds(600); // cookie is good for 10 minutes
@@ -443,19 +461,21 @@ async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection,
     jar.add(new_cookie);
   };
 
-  headers.insert(hyper::header::SET_COOKIE, hyper::header::HeaderValue::from_str(&new_cookie_name).unwrap());
+  headers.insert(hyper::header::SET_COOKIE, hyper::header::HeaderValue::from_str(&new_cookie_name)?);
 
 
   let mut buf = Buffer::new();
-  writeln!(buf, "<!-- My website -->").unwrap();
+  writeln!(buf, "<!-- My website -->")?;
   buf.doctype();
   let mut html = buf.html().attr("lang='en'");
   let mut head = html.head();
   head.meta().attr("http-equiv='refresh' content='0; URL=/collections'");
   *response.body_mut() = Body::from(buf.finish());
+
+  Ok(())
 }
 
-fn check_cookie(headers: &hyper::HeaderMap, conn: &mut Connection) -> String {
+fn check_cookie(headers: &hyper::HeaderMap, conn: &mut Connection) -> Result<String, Box<dyn std::error::Error>> {
   
   let mut password = String::new();
   let jar = JAR.lock_mut().unwrap();
@@ -488,94 +508,84 @@ fn check_cookie(headers: &hyper::HeaderMap, conn: &mut Connection) -> String {
     set_response_error(conn, "Unauthorized, must login".to_string());
   }
 
-  password
+  Ok(password)
 }
 
-async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) {
+async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) -> Result<(), Box<dyn std::error::Error>> {
   
   let uri_path = req.uri().path();
   let collection = uri_path.split_once("query/").unwrap().1;
 
-  let password = check_cookie(req.headers(), conn);
-  if conn.err.is_some() { return }
+  let password = check_cookie(req.headers(), conn)?;
 
   // if tar.gz in the name assume you are grabbing a file.
   if uri_path.contains("tar.gz") {
     let mut filestring = CONFIG.get("data_path").unwrap().to_string();
     filestring.push_str(collection);
-    let mut file = fs::File::open(filestring).unwrap();
+    let mut file = fs::File::open(filestring)?;
     let mut file_buf: Vec<u8> = Vec::new();
     file.read_to_end(&mut file_buf).unwrap();
 
-    response.headers_mut().insert("Content-Type", hyper::header::HeaderValue::from_str("application/octet-stream").unwrap());
+    response.headers_mut().insert("Content-Type", hyper::header::HeaderValue::from_str("application/octet-stream")?);
     *response.body_mut() = Body::from(file_buf);
     // *response.status_mut() = StatusCode::OK; // need to retun OK status code or it will not trigger the auto download
-    return 
+    return Ok(())
   }
 
   // Connecting to database 
-  let client = match get_db_conn(&conn.username, &password, "admin").await {
-    Ok(c) => c,
-    Err(err) => {
-      return set_response_error(conn, err.to_string())
-    }
-  };
+  let client = get_db_conn(&conn.username, &password, "admin").await?;
 
 
   // getting all upload paths to present to user
   let db = client.database(CONFIG.get("database").unwrap()).collection::<bson::Document>(collection);
   let findopts = mongodb::options::FindOptions::builder().projection(doc! { "upload_path": 1 }).build();
-  let cursor = db.find(None, findopts).await.unwrap();
+  let cursor = db.find(None, findopts).await?;
   let res: Vec<String> = cursor.map(|x| x.unwrap().get_str("upload_path").unwrap().to_string()).collect().await;
  
-  let buf = build_html(Webpage::Query, Some(res), Some(collection)).unwrap();
+  let buf = build_html(Webpage::Query, Some(res), Some(collection))?;
 
   // Finally, call finish() to extract the buffer.
   *response.body_mut() = Body::from(buf.finish());
+
+  Ok(())
 }
 
-async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Connection, req: &hyper::HeaderMap) {
+async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Connection, req: &hyper::HeaderMap) -> Result<(), Box<dyn std::error::Error>> {
   
-  let password = check_cookie(req, conn);
-  if conn.err.is_some() { return }
-  
+  let password = check_cookie(req, conn)?;
   
   // Connecting to database to verify user and get collection list 
-  let client = match get_db_conn(&conn.username, &password, "admin").await {
-    Ok(c) => c,
-    Err(err) => {
-      return set_response_error(conn, err.to_string())
-    }
-  };
-
+  let client = get_db_conn(&conn.username, &password, "admin").await?;
   
   // Get a handle to a database.
-  let db = client.database(CONFIG.get("database").unwrap());
+  let db = client.database(CONFIG.get("database").ok_or("DB not found")?);
   
   let buf = build_html(Webpage::Collection, Some(db.list_collection_names(None).await.unwrap()), None).unwrap();
   
   // Finally, call finish() to extract the buffer.
   *response.body_mut() = Body::from(buf.finish());
-
+  Ok(())
 }
 
-async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) {
+async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) -> Result<(), Box<dyn std::error::Error>> {
   // Connecting to database 
   let client = match get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await {
     Ok(c) => c,
     Err(err) => {
-      return set_response_error(conn, err.to_string())
+      set_response_error(conn, err.to_string());
+      return Ok(())
     }
   };
 
   // checking if file already exists in database
   let v: Vec<_> = Connection::simple_db_query(&client, "upload_hash", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.collect().await;
   if v.len() > 0 {
-    return set_response_error(conn, "File already exists cancelling upload".to_string());
+    set_response_error(conn, "File already exists cancelling upload".to_string());
+    return Ok(())
   }
 
   // Await the full body to be concatenated into a single `Bytes`...
-  let full_body = hyper::body::to_bytes(req.into_body()).await.unwrap();
+  let full_body = hyper::body::to_bytes(req.into_body()).await?;
 
   
   // Starting thread here to return response immediately to user
@@ -591,26 +601,23 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
 
   let mut outputfile = fs::File::create(&new_filename).expect("File creation failed");
   outputfile.write_all(&full_body).expect("File write failed");
-  outputfile.flush().unwrap();
+  outputfile.flush()?;
   
   // Leaving server code to process data into database
   let processor = Processor::new(new_filename, conn.clone(), client);
-  processor.process_data().await.unwrap();
+  processor.process_data().await?;
 
   // });
   
 
   *response.body_mut() = Body::from("Data received");
+
+  Ok(())
 }
 
-async fn check(response: &mut hyper::Response<Body>, conn: &mut Connection) {
+async fn check(response: &mut hyper::Response<Body>, conn: &mut Connection) -> Result<(), Box<dyn std::error::Error>> {
   // Connecting to database 
-  let client = match get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await {
-    Ok(c) => c,
-    Err(err) => {
-      return set_response_error(conn, err.to_string())
-    }
-  };
+  let client = get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await?;
 
   // checking if record id already exists in database
   let coll = conn.filehash.split(':').next().unwrap(); // get collection name from id
@@ -621,16 +628,14 @@ async fn check(response: &mut hyper::Response<Body>, conn: &mut Connection) {
   } else {
     response.headers_mut().insert("id_exists", hyper::header::HeaderValue::from_str("0").unwrap());
   }
+
+  Ok(())
 }
 
-async fn cleanup(response: &mut hyper::Response<Body>, conn: &mut Connection) {
+async fn cleanup(response: &mut hyper::Response<Body>, conn: &mut Connection) -> Result<(), Box<dyn std::error::Error>> {
+
   // Connecting to database      
-  let client = match get_db_conn("admin", &conn.password, "admin").await {
-    Ok(c) => c,
-    Err(err) => {
-      return set_response_error(conn, err.to_string())
-    }
-  };
+  let client = get_db_conn("admin", &conn.password, "admin").await?;
 
   let files = fs::read_dir(CONFIG.get("data_path").unwrap()).unwrap();
   let mut result_string = String::new();
@@ -661,14 +666,13 @@ async fn cleanup(response: &mut hyper::Response<Body>, conn: &mut Connection) {
   
 
   *response.body_mut() = Body::from(result_string);
+
+  Ok(())
 }
 
-async fn register(response: &mut hyper::Response<Body>, conn: &mut Connection) {
+async fn register(response: &mut hyper::Response<Body>, conn: &mut Connection) -> Result<(), Box<dyn std::error::Error>> {
   // Connecting to database      
-  let client = match get_db_conn("admin", &conn.password, "admin").await {
-    Ok(c) => c,
-    Err(err) => return set_response_error(conn, err.to_string())
-  };
+  let client =  get_db_conn("admin", &conn.password, "admin").await?;
 
   // Creating new password for user
   let new_key: String = thread_rng()
@@ -687,12 +691,9 @@ async fn register(response: &mut hyper::Response<Body>, conn: &mut Connection) {
     "pwd": new_key,
     "roles": [{"role": "readWrite", "db": CONFIG.get("database").unwrap()}]
   }, None)
-  .await;
+  .await?;
 
-  match user_creation_result {
-    Ok(_) => *response.body_mut() = Body::from("New user created successfully"),
-    Err(err) => return set_response_error(conn, err.to_string())
-  };
+  Ok(())
 }
 
 // Load public certificate from file.
