@@ -15,7 +15,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
-use std::{fs, io, io::Write as iowritetrait, sync};
+use std::{fs, io, io::Write as iowritetrait, sync, path};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_rustls::rustls::ServerConfig;
 use rand::{thread_rng, Rng};
@@ -565,6 +565,18 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
     new_file_path.push_str(&conn.filehash);
   }
   new_file_path.push_str(".tar.gz");
+
+  // don't want to overwrite files
+  if path::Path::new(&new_file_path).exists() {
+    conn.filename.push('_');
+    let curr_local_time = chrono::offset::Local::now().to_string();
+    conn.filename.push_str(&curr_local_time.replace(" ", "_"));
+
+    new_file_path.clear();
+    new_file_path.push_str(CONFIG.get("data_path").unwrap());
+    new_file_path.push_str(&conn.filename);
+    new_file_path.push_str(".tar.gz");
+  }
 
   let mut outputfile = fs::File::create(&new_file_path).expect("File creation failed");
   outputfile.write_all(&full_body).expect("File write failed");

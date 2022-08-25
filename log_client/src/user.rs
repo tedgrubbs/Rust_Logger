@@ -112,7 +112,7 @@ impl User {
       None => req.body(Body::from("")).unwrap(),
       Some(f) => {
 
-        let req = req.header("collection", f.input_directory.to_str().unwrap());
+        let req = req.header("collection", f.collection_name.unwrap());
 
         match endpoint {
           // can just reuse the filehash header for this

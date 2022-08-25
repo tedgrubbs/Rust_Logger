@@ -35,18 +35,31 @@ fn main() {
 
 
   let mut filename = String::new();
-  match args.iter().position(|x| x == "--name") {
-    Some(v) => {
-      filename = args[v+1].to_string();
-      args.remove(v);
-      args.remove(v);
-    },
-    None => ()
-  };
+  if let Some(v) = args.iter().position(|x| x == "--name") {
+    filename = args[v+1].to_string();
+    args.remove(v);
+    args.remove(v);
+  }
+
+  let mut collection_name = String::new();
+  if let Some(v) = args.iter().position(|x| x == "--coll") {
+    collection_name = args[v+1].to_string();
+    args.remove(v);
+    args.remove(v);
+  }
+
   println!("{:?}", args);
 
-  let mut cmd = Command::command(args, user.db_table.get("tracked_files").unwrap().split_whitespace().collect());
-  let tracking_info = cmd.track_files().unwrap();
+  let mut cmd = Command::command(args, user.db_table.get("tracked_files").unwrap().split_whitespace().collect(), collection_name);
+
+  // cannot conintue if no collection name is specified
+  let tracking_info = match cmd.track_files() { 
+    Ok(info) => info,
+    Err(err) => {
+      println!("\n{}", err);
+      return;
+    }
+  };
 
   // if need to update record, should communicate with server to check if current record id exists
   let og_upload_name = user.check_id(tracking_info);
@@ -68,9 +81,17 @@ fn main() {
   // if record does not exist, use currently provided filename 
   // if does exists and no new filename is given, use old filename
   if og_upload_name != "DNE" && filename.is_empty() {
+
     output_info.filename = Some(og_upload_name);
+
   } else {
+    
+    // if no name given will default to directory name
+    if filename.is_empty() {
+      filename = env::current_dir().unwrap().file_name().unwrap().to_str().unwrap().to_string();
+    }
     output_info.filename = Some(filename);
+    
   }
   
   user.send_output(output_info);

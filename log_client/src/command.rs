@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::{env, io, path, process, fs};
 use std::io::{Write, Read};
 use sha2::{Sha256, Digest};
@@ -18,13 +17,14 @@ pub struct Command<'a> {
   file_types: Vec<&'a str>, // allowed input filetypes 
   curr_file_hashes: HashMap<String,String>, // stores hashes of files  currently in directory
   pub record_file_hashes: HashMap<String,String>, // stores hashes of files found in REV file
-  pub needs_update: bool // whether or not the REV file needs to be updated
+  pub needs_update: bool, // whether or not the REV file needs to be updated
+  pub collection_name: String
 }
 
 // data passed to User
 pub struct OutputInfo {
   pub filename: Option<String>, 
-  pub input_directory: OsString, // bottom directory name
+  pub collection_name: Option<String>, // bottom directory name
   pub hash: Option<String>,
   pub compressed_dir: Option<Vec<u8>>,
   pub record_file_hash: Option<String>,
@@ -34,7 +34,7 @@ pub struct OutputInfo {
 
 impl Command<'_> {
 
-  pub fn command(cmd_string: Vec<String>, file_types: Vec<&str>) -> Command {
+  pub fn command(cmd_string: Vec<String>, file_types: Vec<&str>, c_name: String) -> Command {
     println!("Command string received: {:?}", cmd_string);
 
     // get full input file path
@@ -83,7 +83,8 @@ impl Command<'_> {
       file_types,
       curr_file_hashes: HashMap::new(),
       record_file_hashes: HashMap::new(),
-      needs_update: false
+      needs_update: false,
+      collection_name: c_name
     }
 
   }
@@ -144,9 +145,9 @@ impl Command<'_> {
     }
     let final_hash = final_hasher.finalize();
 
-    // combining hash with directory (collection) name to give full id. 
+    // combining hash with collection name to give full id. 
     let mut total_id = String::new();
-    total_id.push_str(env::current_dir().unwrap().file_name().unwrap().to_str().unwrap());
+    total_id.push_str(&self.collection_name);
     total_id.push_str(":");
     total_id.push_str(&hex::encode(final_hash)[..HASH_TRUNCATE_LENGTH].to_string());
 
@@ -203,14 +204,28 @@ impl Command<'_> {
     Ok(())
   }
 
-  pub fn track_files(&mut self) -> io::Result<OutputInfo> {
+  pub fn track_files(&mut self) -> std::result::Result<OutputInfo, Box<dyn std::error::Error> > {
+
+    if path::Path::new("REV").exists() {
+      self.get_record_filehashes();
+
+      // allows user to change collection if they want
+      if self.collection_name.is_empty() {
+        self.collection_name = self.record_file_hashes.get("id").unwrap().split(":").next().unwrap().to_string();  
+      }
+      
+    } else if self.collection_name.is_empty(){
+      let my_err: Box<dyn std::error::Error> = String::from("No collection name specified. Don't know where to put this.\nPlease specify a collection name with the '--coll' option.").into();
+      return Err(my_err)
+    }
+
+
 
     self.get_current_filehashes().unwrap();
 
     // if REV file exists, get those recorded hashes, otherwise need to create it
     // will return immediately after creating new REV file
     if path::Path::new("REV").exists() {
-      self.get_record_filehashes();
 
       // can now check if there are any discrepencies between recorded and current filehashes
       self.check_hashes();
@@ -228,7 +243,7 @@ impl Command<'_> {
 
     let basic_info = OutputInfo {
       filename: None,
-      input_directory: env::current_dir().unwrap().file_name().unwrap().to_os_string(),
+      collection_name: Some(self.collection_name.clone()),
       hash: None,
       compressed_dir: None,
       record_file_hash: Some(self.record_file_hashes.get("id").unwrap().to_string())
@@ -283,7 +298,7 @@ impl Command<'_> {
     // filename will be set in main.rs
     let command_outputs = OutputInfo {
       filename: None,
-      input_directory: env::current_dir().unwrap().file_name().unwrap().to_os_string(),
+      collection_name: Some(self.collection_name.clone()),
       hash: Some(hex::encode(hash)),
       compressed_dir: Some(compressed_data),
       record_file_hash: None
