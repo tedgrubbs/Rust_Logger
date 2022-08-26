@@ -112,17 +112,17 @@ impl User {
     }
   }
 
-  pub fn send_output(&self, payload: Vec<u8>) {
-    self.send_data(Endpoint::UPLOAD, Some(payload));
+  pub fn send_output(&self) {
+    self.send_data(Endpoint::UPLOAD);
   }
 
   pub fn check_id(&self) -> String {
-    let result = self.send_data(Endpoint::ID_CHECK, None).unwrap();
+    let result = self.send_data(Endpoint::ID_CHECK).unwrap();
     result.get("upload_name").unwrap().to_str().unwrap().to_string()
   }
  
 
-  fn send_data(&self, endpoint: &str, payload: Option<Vec<u8>>) -> Option<hyper::HeaderMap<hyper::header::HeaderValue>> {
+  fn send_data(&self, endpoint: &str) -> Option<hyper::HeaderMap<hyper::header::HeaderValue>> {
     let mut server: String = self.db_table.get("Server").unwrap().to_string();
     server.insert_str(0, "https://");
     server.push_str(endpoint);
@@ -157,7 +157,7 @@ impl User {
           _ => {
             let req = req.header("filename", self.filename.as_ref().unwrap());
             let req = req.header("filehash", self.hash.as_ref().unwrap());
-            req.body(Body::from(payload.unwrap())).unwrap()
+            req.body(Body::from(self.compressed_dir.to_owned().unwrap())).unwrap()
           }
         }
       }
@@ -194,7 +194,7 @@ impl User {
 
    fn register(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
-    let headers = self.send_data(Endpoint::REGISTER, None).unwrap();
+    let headers = self.send_data(Endpoint::REGISTER).unwrap();
     let new_key = headers.get("key").unwrap().as_bytes();
     println!("Registration with server successful\n");
 
@@ -212,7 +212,7 @@ impl User {
   pub fn clean_up(&mut self) {
     println!("\nPlease enter the administrator password: ");
       self.admin_password.push_str(&rpassword::read_password().unwrap());
-      self.send_data(Endpoint::CLEANUP, None).unwrap();
+      self.send_data(Endpoint::CLEANUP).unwrap();
   }
 
   pub fn check_creds(&mut self) -> io::Result<()> {
@@ -308,7 +308,7 @@ impl User {
 
   }
 
-  pub fn execute(&mut self) -> io::Result<Vec<u8>> {
+  pub fn execute(&mut self) -> io::Result<()> {
 
     // Executing lammps command by calling lmp directly through shell command
     let mut cmd = process::Command::new("sh");
@@ -488,7 +488,7 @@ impl User {
 
   }
 
-  pub fn compress_and_hash(&mut self) -> io::Result<Vec<u8>> {
+  pub fn compress_and_hash(&mut self) -> io::Result<()> {
     
     // Compressing output directory
     let mut output_filename = String::new();
@@ -514,9 +514,10 @@ impl User {
     // filename will be set in main.rs
     
     self.hash = Some(hex::encode(hash));
+    self.compressed_dir = Some(compressed_data);
     self.record_file_hash = None;
 
-    Ok(compressed_data)
+    Ok(())
   
   }
 
@@ -590,7 +591,7 @@ fn main() {
     return
   }
     
-  let payload = match compress_only {
+  match compress_only {
     false => user.execute().unwrap(),
     true => user.compress_and_hash().unwrap()
   };
@@ -611,7 +612,7 @@ fn main() {
     
   }
   
-  user.send_output(payload);
+  user.send_output();
   
 
 }
