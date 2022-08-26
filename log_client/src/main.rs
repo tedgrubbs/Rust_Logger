@@ -340,17 +340,14 @@ impl User {
   fn get_current_filehashes(&mut self) -> io::Result<()> {
 
     // reads all file names into vec and sorts so the final hash will be deterministic
-    let files = fs::read_dir(env::current_dir()?)?;
-    let mut filenames: Vec<String> = Vec::new();
-    for f in files {
-      filenames.insert(0, f.unwrap().file_name().into_string().unwrap());
-    }
+    let mut filenames: Vec<std::ffi::OsString> = fs::read_dir(env::current_dir()?)?.map(|x| x.unwrap().file_name()).collect();
     filenames.sort();
 
     let mut final_hasher = Sha256::new();
 
     // gets hash of every file that should be tracked 
     for f in filenames {
+      let f = f.to_str().unwrap();
 
       for s in self.db_table.get("tracked_files").unwrap().split(",").map(|x| x.trim()) {
         if f.contains(s) {
@@ -360,7 +357,7 @@ impl User {
           file.read_to_end(&mut file_data)?;
           let hash = Sha256::digest(&file_data);
           final_hasher.update(hash);
-          self.curr_file_hashes.insert(f, hex::encode(hash)[..HASH_TRUNCATE_LENGTH].to_string());
+          self.curr_file_hashes.insert(f.to_string(), hex::encode(hash)[..HASH_TRUNCATE_LENGTH].to_string());
           break;
 
         }
@@ -508,16 +505,22 @@ impl User {
     encoder.write_all(&archive_result)?;
     let compressed_data = encoder.finish()?;
 
-    println!("\nCalculating file hash...");
-    let hash = Sha256::digest(&compressed_data);
-    println!("File hash: {}", hex::encode(hash));
 
-    // let mut compressed_data_file = fs::File::create(&output_filename)?;
-    // compressed_data_file.write_all(&compressed_data)?;
+    // Get that juicy hash
+    let mut all_files: Vec<PathBuf> = fs::read_dir(env::current_dir()?)?.map(|x| x.unwrap().path()).collect();
+    all_files.sort();
+  
+    let mut hasher = Sha256::new();
+    for f in all_files {
+      let mut data: Vec<u8> = Vec::new();
+      fs::File::open(f).unwrap().read_to_end(&mut data).unwrap();
+      hasher.update(data);
+    }
 
-    // filename will be set in main.rs
-    
-    self.hash = Some(hex::encode(hash));
+    let hash = hex::encode(hasher.finalize());
+    println!("File hash: {}", hash);
+
+    self.hash = Some(hash);
     self.compressed_dir = Some(compressed_data);
     self.record_file_hash = None;
 
