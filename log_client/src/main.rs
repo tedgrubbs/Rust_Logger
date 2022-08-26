@@ -352,7 +352,7 @@ impl User {
     // gets hash of every file that should be tracked 
     for f in filenames {
 
-      for s in self.db_table.get("tracked_files").unwrap().split_whitespace() {
+      for s in self.db_table.get("tracked_files").unwrap().split(",").map(|x| x.trim()) {
         if f.contains(s) {
           
           let mut file = fs::File::open(&f)?;
@@ -402,14 +402,14 @@ impl User {
     let mut rev_file = fs::File::create("REV")?;
 
     // want ids at top of file
-    rev_file.write_all(b"id ")?;
+    rev_file.write_all(b"id : ")?;
     rev_file.write_all(self.curr_file_hashes.get("id").unwrap().as_bytes())?;
     rev_file.write_all(b"\n")?;
 
-    rev_file.write_all(b"parent_id ")?;
+    rev_file.write_all(b"parent_id : ")?;
     match parent_id {
       Some(s) => rev_file.write_all(s.as_bytes())?,
-      None => rev_file.write_all(b"*\n")?
+      None => rev_file.write_all(b"*")?
     };
 
     rev_file.write_all(b"\n")?;
@@ -417,7 +417,7 @@ impl User {
     for f in filenames {
       if f == "id" { continue; } // don't need to write id twice
       rev_file.write_all(f.as_bytes())?;
-      rev_file.write_all(b" ")?;
+      rev_file.write_all(b" : ")?;
       rev_file.write_all(self.curr_file_hashes.get(f).unwrap().as_bytes())?;
       rev_file.write_all(b"\n")?;
     }
