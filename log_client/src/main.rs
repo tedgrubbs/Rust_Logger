@@ -394,7 +394,8 @@ impl User {
   fn update_rev_file(&self, parent_id: Option<&str>) -> io::Result<()> {
 
     // Puts all hashes into text file along with one "master" hash that sums up the whole directory
-    let filenames: Vec<&String> = self.curr_file_hashes.keys().collect();
+    let mut filenames: Vec<&String> = self.curr_file_hashes.keys().collect();
+    filenames.sort(); // sorting these too so that the REV file is always the same
 
     let mut rev_file = fs::File::create("REV")?;
 
@@ -506,7 +507,9 @@ impl User {
     let compressed_data = encoder.finish()?;
 
 
-    // Get that juicy hash
+    // Need to hash all files to get correct final hash.
+    // The hash of a tar.gz file changes based on the file modification time.
+    // I only care if the file contents themselves change, so i need to hash all individually.
     let mut all_files: Vec<PathBuf> = fs::read_dir(env::current_dir()?)?.map(|x| x.unwrap().path()).collect();
     all_files.sort();
   
