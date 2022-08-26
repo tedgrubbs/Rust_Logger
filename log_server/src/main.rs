@@ -15,7 +15,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::vec::Vec;
-use std::{fs, io, io::Write as iowritetrait, sync, path};
+use std::{fs, io, io::Write as iowritetrait, sync};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_rustls::rustls::ServerConfig;
 use rand::{thread_rng, Rng};
@@ -568,7 +568,9 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
   new_file_path.push_str(".tar.gz");
 
   // don't want to overwrite files
-  if path::Path::new(&new_file_path).exists() {
+  // if same name, append datetime
+  let path_check = Connection::simple_db_query(&client, "upload_path", &new_file_path, CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
+  if path_check > 0  {
     conn.filename.push('_');
     let curr_local_time = chrono::offset::Local::now().to_string();
     conn.filename.push_str(&curr_local_time.replace(" ", "_"));
@@ -589,8 +591,9 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
 
   // });
   
-
-  *response.body_mut() = Body::from("Data received");
+  let mut body_response = String::from("New file created: ");
+  body_response.push_str(&conn.filename);
+  *response.body_mut() = Body::from(body_response);
 
   Ok(())
 }
