@@ -13,7 +13,7 @@ echo -e '\n'
 echo -e '\n### Installing the log server ###\n'
 
 # creating config file with default templates
-config="server_port 1241\ncert_path $HOME/$CONFIG_DIR/myserver.crt\nkey_path $HOME/$CONFIG_DIR/myserver.key\ndata_path $HOME/$CONFIG_DIR/data/\ndatabase LAMMPS"
+config="server_port : 1241\ncert_path : $HOME/$CONFIG_DIR/myserver.crt\nkey_path : $HOME/$CONFIG_DIR/myserver.key\ndata_path : $HOME/$CONFIG_DIR/data/\ndatabase : LAMMPS"
 
 config_path=$HOME/$CONFIG_DIR/config
 
