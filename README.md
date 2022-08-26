@@ -27,10 +27,12 @@ You might ask "well why not use git?". You certainly could use git to track thes
   - [`log` - upload](#log---upload)
     - [Usage:](#usage-1)
   - [Example](#example)
+  - [`log` - `coll` and `name`](#log---coll-and-name)
   - [`log` - `watch` file](#log---watch-file)
   - [`log` - `dump` files](#log---dump-files)
   - [log - clean](#log---clean)
   - [How to actually use this data](#how-to-actually-use-this-data)
+  - [`log_server` - Web interface](#log_server---web-interface)
 
 ## Quick Help
 ### `Commands`:
@@ -40,6 +42,9 @@ You might ask "well why not use git?". You certainly could use git to track thes
   - Example: `log mpirun -np 4 lmp -in in.crack`
 - `log -c < file / directory / . >` - Will compress and upload current directory to server. If given a file, will compress the directory containing said file.
   - Example: `log -c lammps/examples/crack/`
+- `log options`:
+  - `--coll <collection name>` - specifies collection where file will go
+  - `--name <upload name>` - specific name of file or `upload_name`
 - `log clean` - Will remove any "dead" files deleted from database but still on the server filesystem.
   - Example: `log clean`
 
@@ -75,6 +80,7 @@ Valid types are:
 - float
 - int
 - thermo_log
+- keywords
 
 And yes I know that JSON doesn't have boolean types, for `"bool"` I actually mean `1/0` for `true/false`, respectively.
 
@@ -110,11 +116,11 @@ This will install the executable `tls_server` to `/usr/bin/` and attempt to star
 As the printed install messages indicate, you must first set up the server config. This will be located in a new hidden folder in your home directory called `.log_server/config`. It looks like this:
 
 ```
-server_port 1241
-cert_path /home/tedwing/.log_server/myserver.crt
-key_path /home/tedwing/.log_server/myserver.key
-data_path /home/tedwing/.log_server/data/
-database LAMMPS
+server_port : 1241
+cert_path : /home/tedwing/.log_server/myserver.crt
+key_path : /home/tedwing/.log_server/myserver.key
+data_path : /home/tedwing/.log_server/data/
+database : LAMMPS
 ```
 
 Not much going on there. The options are pretty self-explanatory but I will explain them here:
@@ -140,16 +146,16 @@ Considerably less flashy than the server install.
 This also installs a config to a hidden folder in the home folder at `~/.log/config`:
 
 ```
-Username tayg
-Server localhost:1241
-tracked_files in.
+Username : tayg
+Server : localhost:1241
+tracked_files : in.
 ```
 
 Even more boring than the server config!
 
 - `Username` - The username that will register this machine with the server. Set it to whatever you want (Might change this in the future to just use the system name so that you don't have to create a username for each machine manually)
 - `Server` - This is the site + port of the machine  where the `log_server` is running. So if the server was running at example.com on port 1241 I would put `example.com:1241` here.
-- `tracked_files` - This denotes a list of filetypes that `log_client` should monitor for changes. This can be a file extension, file prefix, or just some common substring found in your files. Different types are separated by spaces so to track multiple files this would look like "`tracked_files .log .txt .csv`"
+- `tracked_files` - This denotes a list of filetypes that `log_client` should monitor for changes. This can be a file extension, file prefix, or just some common substring found in your files. Different types are separated by commas so to track multiple files this would look like "`tracked_files : .log, .txt, .csv`"
 
 This covers the basic setup required for Rust_Logger to operate. We can now do *fun things*.
 
@@ -256,6 +262,11 @@ thread 'main' panicked at 'Error: Previous record not found in database, revert 
 
 This error can only occur if something was deleted in the MongoDB. To fix this you will need to delete the current REV file so that `log` can start a new branch.
 
+## `log` - `coll` and `name`
+When you upload a new directory for the first time you must specify the `--coll` option followed by a collection name. This will tell `log` where to upload this file. Subsequent uploads will reuse this collection, unless a new collection is specified.
+
+You may also specify a specifc name for the upload with `--name`. This changes the `upload_path` field in the database. Subsequent uploads will default to whatever name was used first- with the current datetime appended. If there is no name specified for the first upload, will default to the directory name.
+
 
 ## `log` - `watch` file
 Within the `files` object we can also see the REV file here. But notice that the other files - `log.lammps` and `test_file` - are not present. This is because these file types are not on the `tracked_files` list. However, there is a way for us to tell `Rust_Logger` to monitor them.
@@ -300,7 +311,12 @@ For our current `crack` example, a `watch` file might look like this:
       "thermo_data": 
       {
         "type": "thermo_log"
-      }  
+      },
+
+      "keywords":
+      {
+        "type": "keywords"
+      }
     }
 
   }
@@ -326,6 +342,20 @@ In the database it looks like this:
 
 ![Alt text](imgs/thermo_data_db.png)
 ![Alt text](imgs/thermo_data_db_expanded.png)
+
+`keywords` is another special type that lets you add tags to your files. In the above example the `log_server` would look for the appearance of they "keywords" string and then add each word after that as a separate entry in the database. 
+
+For example, in my log.lammps file I might have 
+
+```
+keywords crack sim test
+```
+
+In the database this will show up as
+
+![Alt text](imgs/keywords_example.png)
+
+This will hopefully be useful in a future search functionality.
 
 >*You might be wondering, "well, what if I have multiple occurences of the same string in my output files? How will Rust_Logger handle those?"  
 > The answer is ... it doesn't. It will just use the last appearance of that variable for the value it logs.  
@@ -373,3 +403,10 @@ However sometimes you may want to delete something from the MongoDB. This will n
 I've talked a lot about how to upload your data to a database using the Rust_Logger, but I haven't really shown you what you can do with this data afterwards. I might add some examples of this later on but right now it is up to you.
 
 I would recommend using [Python](https://www.mongodb.com/languages/python) to query and use your data, but you can use whatever language or tool you want.
+
+## `log_server` - Web interface
+There is simple a html-based interface which let's you download files from the server. Simply navigate to the url of the server (`Server` in the client config). You will be greeted by a simple web page that prompts your for the database admin password. You can then navigate between your collections and click to download anything that you have uploaded
+
+![Alt text](imgs/web_interface_example.png)
+
+The site does use cookies to make sure you are properly authenticated and they currently expire after 10 minutes. AFter that you will have to log in again.
