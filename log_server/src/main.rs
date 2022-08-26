@@ -423,7 +423,8 @@ async fn home_page(response: &mut hyper::Response<Body>) -> Result<(), Box<dyn s
 
 async fn web_login (response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) -> Result<(), Box<dyn std::error::Error>> {
 
-  let form_password = String::from_utf8(hyper::body::to_bytes(req.into_body()).await.unwrap().to_ascii_lowercase()).unwrap();
+  let request_body: Vec<u8> = hyper::body::to_bytes(req.into_body()).await.unwrap().into_iter().collect();
+  let form_password = String::from_utf8(request_body).unwrap();
   let form_password = form_password.split_once("=").unwrap().1;
 
   // Connecting to database to verify user 
