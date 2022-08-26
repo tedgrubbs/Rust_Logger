@@ -157,7 +157,11 @@ impl User {
           _ => {
             let req = req.header("filename", self.filename.as_ref().unwrap());
             let req = req.header("filehash", self.hash.as_ref().unwrap());
-            req.body(Body::from(self.compressed_dir.to_owned().unwrap())).unwrap()
+            
+            // using to_owned() here seems like it would be bad for large files since you might be copying MBs or GBs in memory
+            // However when testing with a 8 MB pdf, I saw no performance difference between this and a method which used the original compressed
+            // dir vec.
+            req.body(Body::from(self.compressed_dir.to_owned().unwrap())).unwrap() 
           }
         }
       }
