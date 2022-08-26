@@ -44,6 +44,8 @@ lazy_static! {
 // cookie jar for managing logins
 static JAR: global::Global<CookieJar> = global::Global::new();
 
+const HTML_PAGES: [&str; 4] = ["", "query", "collections", "login"];
+
 fn main() {
 
   // Serve an echo service over HTTPS, with proper error handling.
@@ -270,10 +272,10 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
 
   // current endpoints use only the element after the first '/'
   // so "/query/crack/" only cares about the "/query" part of the endpoint
-  let uri_path = req.uri().path().split("/").nth(1).unwrap();
+  let uri_path = req.uri().path().split("/").nth(1).unwrap().to_owned();
 
   // normal API for everything else
-  if let Result::Err(err) = match (req.method(), uri_path) {
+  if let Result::Err(err) = match (req.method(), uri_path.as_str()) {
 
     // home page in browser
     (&Method::GET, "") => {
@@ -328,8 +330,15 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
   if !error.is_empty() {
     println!("Server Error: {}", error);
     *response.status_mut() = StatusCode::UNAUTHORIZED;
-    let buf = build_html(Webpage::ErrorPage, None, Some(&error)).unwrap();
-    *response.body_mut() = Body::from(buf.finish());
+
+    // only return html pages for the normal web pages.
+    if HTML_PAGES.contains(&uri_path.as_str()) {
+      let buf = build_html(Webpage::ErrorPage, None, Some(&error)).unwrap();
+      *response.body_mut() = Body::from(buf.finish());
+    } else {
+      *response.body_mut() = Body::from(error);
+    }
+    
   }
 
   Ok(response)
