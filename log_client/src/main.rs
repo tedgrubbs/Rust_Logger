@@ -515,6 +515,7 @@ impl User {
   
     let mut hasher = Sha256::new();
     for f in all_files {
+      if f.is_dir() { continue; }
       let mut data: Vec<u8> = Vec::new();
       fs::File::open(f).unwrap().read_to_end(&mut data).unwrap();
       hasher.update(data);
