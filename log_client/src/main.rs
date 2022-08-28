@@ -1,3 +1,4 @@
+
 use std::collections::HashMap;
 use std::{env, io, path, process, fs};
 use std::io::{Write, Read};
@@ -47,6 +48,8 @@ struct User {
   hash: Option<String>,
   compressed_dir: Option<Vec<u8>>,
   record_file_hash: Option<String>,
+
+  potential_rev_file: Option<Vec<u8>>
 }
 
 // Lists possible endpoints on server
@@ -85,7 +88,8 @@ impl User {
       collection_name: String::new(), // bottom directory name
       hash: None,
       compressed_dir: None,
-      record_file_hash: None
+      record_file_hash: None,
+      potential_rev_file: None
     };
 
     new_user.read_config_file();
@@ -385,43 +389,43 @@ impl User {
   pub fn update_record(&mut self) {
 
     // current id becomes the new parent id
-    self.update_rev_file(Some(self.record_file_hashes.get("id").unwrap())).unwrap();
+    let parent_id = self.record_file_hashes.get("id").unwrap().to_owned();
+    self.update_rev_file(Some(parent_id)).unwrap();
 
     // update record filehashes
     self.get_record_filehashes();
   }
 
-  fn update_rev_file(&self, parent_id: Option<&str>) -> io::Result<()> {
+  fn update_rev_file(&mut self, parent_id: Option<String>) -> io::Result<()> {
 
     // Puts all hashes into text file along with one "master" hash that sums up the whole directory
     let mut filenames: Vec<&String> = self.curr_file_hashes.keys().collect();
     filenames.sort(); // sorting these too so that the REV file is always the same
 
-    let mut rev_file = fs::File::create("REV")?;
+    let mut new_rev = String::new();
 
     // want ids at top of file
-    rev_file.write_all(b"id : ")?;
-    rev_file.write_all(self.curr_file_hashes.get("id").unwrap().as_bytes())?;
-    rev_file.write_all(b"\n")?;
+    new_rev.push_str("id : ");
+    new_rev.push_str(self.curr_file_hashes.get("id").unwrap());
+    new_rev.push_str("\n");
 
-    rev_file.write_all(b"parent_id : ")?;
+    new_rev.push_str("parent_id : ");
     match parent_id {
-      Some(s) => rev_file.write_all(s.as_bytes())?,
-      None => rev_file.write_all(b"*")?
+      Some(s) => new_rev.push_str(&s),
+      None => new_rev.push_str("*")
     };
 
-    rev_file.write_all(b"\n")?;
+    new_rev.push_str("\n");
 
     for f in filenames {
       if f == "id" { continue; } // don't need to write id twice
-      rev_file.write_all(f.as_bytes())?;
-      rev_file.write_all(b" : ")?;
-      rev_file.write_all(self.curr_file_hashes.get(f).unwrap().as_bytes())?;
-      rev_file.write_all(b"\n")?;
+      new_rev.push_str(f);
+      new_rev.push_str(" : ");
+      new_rev.push_str(self.curr_file_hashes.get(f).unwrap());
+      new_rev.push_str("\n");
     }
 
-    
-    rev_file.flush()?;
+    self.potential_rev_file = Some(new_rev.into_bytes());    
     Ok(())
   }
 
@@ -497,32 +501,61 @@ impl User {
     output_filename.push_str(self.input_file_path.file_name().unwrap().to_str().unwrap());
     output_filename.push_str(".tar.gz");
 
-    // Creating tar archive of directory, then compressing
-    println!("Compressing output data.");
-    let mut archive = Builder::new(Vec::new());
-    archive.append_dir_all("",".").unwrap();
-    let archive_result = archive.into_inner().unwrap();
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-    encoder.write_all(&archive_result)?;
-    let compressed_data = encoder.finish()?;
-
-
     // Need to hash all files to get correct final hash.
     // The hash of a tar.gz file changes based on the file modification time.
     // I only care if the file contents themselves change, so i need to hash all individually.
     let mut all_files: Vec<PathBuf> = fs::read_dir(env::current_dir()?)?.map(|x| x.unwrap().path()).collect();
     all_files.sort();
-  
+
+    // Creating tar archive of directory, then compressing
+    println!("Compressing output data.");
+    let mut archive = Builder::new(Vec::new());
     let mut hasher = Sha256::new();
+
     for f in all_files {
-      if f.is_dir() { continue; }
+
+      let filename = f.file_name().unwrap();
+      let pot_rev_file_ptr = self.potential_rev_file.as_ref();
+
+      // appending rev file manually
+      // this allows us to change the local rev file only if we succeeded in uploading the data 
+      // to the server.
+      if filename == "REV" && pot_rev_file_ptr.is_some(){
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(pot_rev_file_ptr.unwrap().len().try_into().unwrap());
+        header.set_cksum();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_uid(self.user_id.try_into().unwrap());
+        header.set_gid(self.user_id.try_into().unwrap());
+        header.set_mode(0o666);
+        // header.set_mtime(chrono::)
+        archive.append_data(&mut header, filename, pot_rev_file_ptr.unwrap().as_slice()).unwrap();
+
+      } else if f.is_dir() { 
+
+        archive.append_dir(filename, &f).unwrap();
+        continue; 
+
+      } else {
+
+        archive.append_file(filename, &mut fs::File::open(&f).unwrap()).unwrap();
+
+      }
+      
       let mut data: Vec<u8> = Vec::new();
       fs::File::open(f).unwrap().read_to_end(&mut data).unwrap();
       hasher.update(data);
+
     }
 
     let hash = hex::encode(hasher.finalize());
     println!("File hash: {}", hash);
+
+    let archive_result = archive.into_inner().unwrap();
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(&archive_result)?;
+    let compressed_data = encoder.finish()?;
 
     self.hash = Some(hash);
     self.compressed_dir = Some(compressed_data);
@@ -591,7 +624,10 @@ fn main() {
   };
 
   // if need to update record, should communicate with server to check if current record id exists
+  println!("Checking if previous version exists...");
   let og_upload_name = user.check_id();
+  println!("Version check done\n");
+
   if og_upload_name != "DNE" {
     if user.needs_update {
       println!("Record exists, can update");
@@ -622,8 +658,10 @@ fn main() {
     user.filename = Some(filename);
     
   }
-  
+
+  println!("Attempting upload...");
   user.send_output();
+  // println!("Upload complete");
   
 
 }
