@@ -116,18 +116,18 @@ impl User {
     }
   }
 
-  pub fn send_output(&self) {
-    self.send_data(Endpoint::UPLOAD);
+  pub fn send_output(&self) -> Result<hyper::HeaderMap<hyper::header::HeaderValue>, Box<dyn std::error::Error> >  {
+    self.send_data(Endpoint::UPLOAD)
   }
 
-  pub fn check_id(&self) -> String {
-    let result = self.send_data(Endpoint::ID_CHECK).unwrap();
-    result.get("upload_name").unwrap().to_str().unwrap().to_string()
+  pub fn check_id(&self) -> Result<String, Box<dyn std::error::Error>> {
+    let result = self.send_data(Endpoint::ID_CHECK)?;
+    Ok(result.get("upload_name").unwrap().to_str().unwrap().to_string())
   }
  
 
-  fn send_data(&self, endpoint: &str) -> Option<hyper::HeaderMap<hyper::header::HeaderValue>> {
-    let mut server: String = self.db_table.get("Server").unwrap().to_string();
+  fn send_data(&self, endpoint: &str) -> Result<hyper::HeaderMap<hyper::header::HeaderValue>, Box<dyn std::error::Error> > {
+    let mut server: String = self.db_table.get("Server").unwrap().to_string(); 
     server.insert_str(0, "https://");
     server.push_str(endpoint);
 
@@ -189,10 +189,11 @@ impl User {
 
       if status != StatusCode::OK {
         println!("Error: {}", body_string);
-        None
+        let err: Box<dyn std::error::Error> = String::from(body_string).into();
+        Err(err)
       } else {
         println!("{}", body_string);
-        Some(headers)
+        Ok(headers)
       }
       
     });
@@ -202,7 +203,7 @@ impl User {
 
    fn register(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
-    let headers = self.send_data(Endpoint::REGISTER).unwrap();
+    let headers = self.send_data(Endpoint::REGISTER)?;
     let new_key = headers.get("key").unwrap().as_bytes();
     println!("Registration with server successful\n");
 
@@ -217,19 +218,20 @@ impl User {
     Ok(())
   }
 
-  pub fn clean_up(&mut self) {
+  pub fn clean_up(&mut self) -> Result<(), Box<dyn std::error::Error> > {
     println!("\nPlease enter the administrator password: ");
-      self.admin_password.push_str(&rpassword::read_password().unwrap());
-      self.send_data(Endpoint::CLEANUP).unwrap();
+    self.admin_password.push_str(&rpassword::read_password().unwrap());
+    self.send_data(Endpoint::CLEANUP)?;
+    Ok(())
   }
 
-  pub fn check_creds(&mut self) -> io::Result<()> {
+  pub fn check_creds(&mut self) -> Result<(), Box<dyn std::error::Error> > {
 
     if !path::Path::new(KEY_FILE).exists() {
 
       println!("No credential file found. Starting registration process.\nPlease enter the administrator password: ");
       self.admin_password.push_str(&rpassword::read_password().unwrap());
-      self.register().unwrap();
+      self.register()?;
 
     }
 
@@ -390,13 +392,13 @@ impl User {
 
     // current id becomes the new parent id
     let parent_id = self.record_file_hashes.get("id").unwrap().to_owned();
-    self.update_rev_file(Some(parent_id)).unwrap();
+    self.make_new_rev(Some(parent_id)).unwrap();
 
     // update record filehashes
     self.get_record_filehashes();
   }
 
-  fn update_rev_file(&mut self, parent_id: Option<String>) -> io::Result<()> {
+  fn make_new_rev(&mut self, parent_id: Option<String>) -> io::Result<()> {
 
     // Puts all hashes into text file along with one "master" hash that sums up the whole directory
     let mut filenames: Vec<&String> = self.curr_file_hashes.keys().collect();
@@ -427,6 +429,12 @@ impl User {
 
     self.potential_rev_file = Some(new_rev.into_bytes());    
     Ok(())
+  }
+
+  pub fn update_rev_file (&mut self) {
+    let mut new_rev = fs::File::create("REV").unwrap();
+    new_rev.write_all(self.potential_rev_file.as_ref().unwrap()).unwrap();
+    new_rev.flush().unwrap();
   }
 
   pub fn track_files(&mut self) -> std::result::Result<(), Box<dyn std::error::Error> > {
@@ -462,7 +470,7 @@ impl User {
 
     } else {
       println!("No REV file found, creating a new one");
-      self.update_rev_file(None).unwrap();
+      self.make_new_rev(None).unwrap();
       self.get_record_filehashes();
     }
 
@@ -572,7 +580,10 @@ fn main() {
   println!();
 
   let mut user = User::user();
-  user.check_creds().unwrap();
+  if let Err(err) = user.check_creds() {
+    println!("Error when registering: {}", err);
+    return 
+  }
 
   let mut args: Vec<String> = env::args().collect();
 
@@ -588,7 +599,7 @@ fn main() {
 
   if args[0] == "clean" {
     args.remove(0);
-    user.clean_up();
+    if user.clean_up().is_err() {};
     return;
   }
 
@@ -625,7 +636,14 @@ fn main() {
 
   // if need to update record, should communicate with server to check if current record id exists
   println!("Checking if previous version exists...");
-  let og_upload_name = user.check_id();
+  let og_upload_name = match user.check_id() {
+    Ok(name) => name,
+    Err(_) => {
+      println!("Error while checking for previous record");
+      return
+    }
+  };
+
   println!("Version check done\n");
 
   if og_upload_name != "DNE" {
@@ -660,8 +678,11 @@ fn main() {
   }
 
   println!("Attempting upload...");
-  user.send_output();
-  // println!("Upload complete");
-  
+  match user.send_output() {
+    Ok(_) => {
+      user.update_rev_file();
+    },
+    Err(_) => println!("Error sending data file, cannot update REV")
+  };
 
 }
