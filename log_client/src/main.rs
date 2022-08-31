@@ -353,6 +353,9 @@ impl User {
 
     // gets hash of every file that should be tracked 
     for f in filenames {
+
+      if PathBuf::from(&f).is_dir() { continue; } // skipping directories
+
       let f = f.to_str().unwrap();
 
       for s in self.db_table.get("tracked_files").unwrap().split(",").map(|x| x.trim()) {
