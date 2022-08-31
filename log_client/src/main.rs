@@ -473,9 +473,12 @@ impl User {
       }
 
     } else {
+      
       println!("No REV file found, creating a new one");
       self.make_new_rev(None).unwrap();
+      self.update_rev_file();
       self.get_record_filehashes();
+
     }
 
     self.filename= None;
@@ -524,11 +527,12 @@ impl User {
     let mut archive = Builder::new(Vec::new());
     let mut hasher = Sha256::new();
 
+    let pot_rev_file_ptr = self.potential_rev_file.as_ref();
+
     for f in all_files {
 
       let filename = f.file_name().unwrap();
-      let pot_rev_file_ptr = self.potential_rev_file.as_ref();
-
+      
       // appending rev file manually
       // this allows us to change the local rev file only if we succeeded in uploading the data 
       // to the server.
@@ -541,7 +545,8 @@ impl User {
         header.set_uid(self.user_id.try_into().unwrap());
         header.set_gid(self.user_id.try_into().unwrap());
         header.set_mode(0o666);
-        // header.set_mtime(chrono::)
+        let time = chrono::Utc::now();
+        header.set_mtime(time.timestamp().try_into().unwrap());
         archive.append_data(&mut header, filename, pot_rev_file_ptr.unwrap().as_slice()).unwrap();
         hasher.update(pot_rev_file_ptr.unwrap().as_slice());
         continue;
@@ -549,7 +554,7 @@ impl User {
       } else if f.is_dir() { 
 
         archive.append_dir(filename, &f).unwrap();
-        continue; 
+        continue; // skips directories
 
       } else {
 
