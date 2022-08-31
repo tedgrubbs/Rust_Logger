@@ -432,9 +432,13 @@ impl User {
   }
 
   pub fn update_rev_file (&mut self) {
-    let mut new_rev = fs::File::create("REV").unwrap();
-    new_rev.write_all(self.potential_rev_file.as_ref().unwrap()).unwrap();
-    new_rev.flush().unwrap();
+
+    if self.potential_rev_file.is_some() {
+      let mut new_rev = fs::File::create("REV").unwrap();
+      new_rev.write_all(self.potential_rev_file.as_ref().unwrap()).unwrap();
+      new_rev.flush().unwrap();
+    }  
+    
   }
 
   pub fn track_files(&mut self) -> std::result::Result<(), Box<dyn std::error::Error> > {
@@ -539,6 +543,8 @@ impl User {
         header.set_mode(0o666);
         // header.set_mtime(chrono::)
         archive.append_data(&mut header, filename, pot_rev_file_ptr.unwrap().as_slice()).unwrap();
+        hasher.update(pot_rev_file_ptr.unwrap().as_slice());
+        continue;
 
       } else if f.is_dir() { 
 
