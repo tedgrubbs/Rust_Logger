@@ -556,7 +556,7 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
   let client = get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await?;
 
   // checking if file already exists in database
-  let num_entries = Connection::simple_db_query(&client, "upload_hash", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
+  let num_entries = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
   if num_entries > 0 {
     return Err(set_response_error("File already exists cancelling upload"))
   }

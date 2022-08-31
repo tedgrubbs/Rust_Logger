@@ -45,11 +45,12 @@ struct User {
   
   filename: Option<String>, 
   collection_name: String, // bottom directory name
-  hash: Option<String>,
   compressed_dir: Option<Vec<u8>>,
   record_file_hash: Option<String>,
 
-  potential_rev_file: Option<Vec<u8>>
+  potential_rev_file: Option<Vec<u8>>,
+
+  file_list: Vec<PathBuf>
 }
 
 // Lists possible endpoints on server
@@ -86,10 +87,10 @@ impl User {
 
       filename: None, 
       collection_name: String::new(), // bottom directory name
-      hash: None,
       compressed_dir: None,
       record_file_hash: None,
-      potential_rev_file: None
+      potential_rev_file: None,
+      file_list: Vec::new()
     };
 
     new_user.read_config_file();
@@ -160,7 +161,7 @@ impl User {
           },
           _ => {
             let req = req.header("filename", self.filename.as_ref().unwrap());
-            let req = req.header("filehash", self.hash.as_ref().unwrap());
+            let req = req.header("filehash", self.curr_file_hashes.get("id").unwrap());
             
             // using to_owned() here seems like it would be bad for large files since you might be copying MBs or GBs in memory
             // However when testing with a 8 MB pdf, I saw no performance difference between this and a method which used the original compressed
@@ -308,6 +309,11 @@ impl User {
         real_string.push_str(" ");
     }
 
+    // reads all file names into vec and sorts so the final hash will be deterministic
+    println!("Finding all files...");
+    self.find_all_files(PathBuf::from("./")).unwrap();
+    self.file_list.sort();
+
     self.cmd_string = real_string;
     self.input_file_path = input_file_path;
     self.curr_file_hashes = HashMap::new();
@@ -345,14 +351,10 @@ impl User {
   // Gets hashes for current files in working directory
   fn get_current_filehashes(&mut self) -> io::Result<()> {
 
-    // reads all file names into vec and sorts so the final hash will be deterministic
-    let mut filenames: Vec<std::ffi::OsString> = fs::read_dir(env::current_dir()?)?.map(|x| x.unwrap().file_name()).collect();
-    filenames.sort();
-
     let mut final_hasher = Sha256::new();
 
     // gets hash of every file that should be tracked 
-    for f in filenames {
+    for f in &self.file_list {
 
       if PathBuf::from(&f).is_dir() { continue; } // skipping directories
 
@@ -366,7 +368,8 @@ impl User {
           file.read_to_end(&mut file_data)?;
           let hash = Sha256::digest(&file_data);
           final_hasher.update(hash);
-          self.curr_file_hashes.insert(f.to_string(), hex::encode(hash)[..HASH_TRUNCATE_LENGTH].to_string());
+          // splitting at 2 here to remove the "./"
+          self.curr_file_hashes.insert(f.split_at(2).1.to_string(), hex::encode(hash)[..HASH_TRUNCATE_LENGTH].to_string());
           break;
 
         }
@@ -412,6 +415,7 @@ impl User {
     // want ids at top of file
     new_rev.push_str("id : ");
     new_rev.push_str(self.curr_file_hashes.get("id").unwrap());
+    println!("New id: {}", self.curr_file_hashes.get("id").unwrap());
     new_rev.push_str("\n");
 
     new_rev.push_str("parent_id : ");
@@ -485,7 +489,6 @@ impl User {
     }
 
     self.filename= None;
-    self.hash= None;
     self.compressed_dir = None;
     self.record_file_hash = Some(self.record_file_hashes.get("id").unwrap().to_string());
 
@@ -528,7 +531,6 @@ impl User {
     // Creating tar archive of directory, then compressing
     println!("Compressing output data.");
     let mut archive = Builder::new(Vec::new());
-    let mut hasher = Sha256::new();
 
     let pot_rev_file_ptr = self.potential_rev_file.as_ref();
 
@@ -551,40 +553,52 @@ impl User {
         let time = chrono::Utc::now();
         header.set_mtime(time.timestamp().try_into().unwrap());
         archive.append_data(&mut header, filename, pot_rev_file_ptr.unwrap().as_slice()).unwrap();
-        hasher.update(pot_rev_file_ptr.unwrap().as_slice());
         continue;
 
       } else if f.is_dir() { 
 
-        archive.append_dir(filename, &f).unwrap();
-        continue; // skips directories
+        archive.append_dir_all(filename, &f).unwrap();
 
       } else {
 
         archive.append_file(filename, &mut fs::File::open(&f).unwrap()).unwrap();
 
       }
-      
-      let mut data: Vec<u8> = Vec::new();
-      fs::File::open(f).unwrap().read_to_end(&mut data).unwrap();
-      hasher.update(data);
 
     }
 
-    let hash = hex::encode(hasher.finalize());
-    println!("File hash: {}", hash);
 
     let archive_result = archive.into_inner().unwrap();
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder.write_all(&archive_result)?;
     let compressed_data = encoder.finish()?;
 
-    self.hash = Some(hash);
     self.compressed_dir = Some(compressed_data);
-    self.record_file_hash = None;
 
     Ok(())
   
+  }
+
+  fn find_all_files(&mut self, dir: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    
+    let mut filenames: Vec<std::ffi::OsString> = fs::read_dir(&dir)?.map(|x| x.unwrap().file_name()).collect();
+    filenames.sort();
+
+    for f in filenames {
+
+      let mut sub_dir = PathBuf::from(&dir);
+      sub_dir.push(&f);
+      
+      if PathBuf::from(&sub_dir).is_dir() {
+        self.find_all_files(sub_dir)?;
+      } else {
+        self.file_list.push(sub_dir);
+      }
+
+    }
+
+    Ok(())
+
   }
 
 }
