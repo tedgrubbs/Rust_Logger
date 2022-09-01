@@ -321,7 +321,7 @@ impl Processor {
     if parent_id != "*" {
 
       // get parent REV hash
-      let mut res = Connection::simple_db_query(&self.db_client, "id", parent_id, db_name, coll, Some(doc! {"files": 1})).await;
+      let mut res = Connection::simple_db_query(&self.db_client, Some("id"), Some(parent_id), db_name, coll, Some(doc! {"files": 1})).await;
 
       // checks for case where parent id no longer exists
       let parent = match res.try_next().await? {

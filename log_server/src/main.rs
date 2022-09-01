@@ -512,18 +512,14 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
 
     response.headers_mut().insert("Content-Type", hyper::header::HeaderValue::from_str("application/octet-stream").unwrap());
     *response.body_mut() = Body::from(file_buf);
-    // *response.status_mut() = StatusCode::OK; // need to retun OK status code or it will not trigger the auto download
     return Ok(())
   }
 
   // Connecting to database 
   let client = get_db_conn(&conn.username, &password, "admin").await?;
 
-
   // getting all upload paths to present to user
-  let db = client.database(CONFIG.get("database").unwrap()).collection::<bson::Document>(collection);
-  let findopts = mongodb::options::FindOptions::builder().projection(doc! { "upload_path": 1 }).build();
-  let cursor = db.find(None, findopts).await?;
+  let cursor = Connection::simple_db_query(&client, None, None, CONFIG.get("database").unwrap(), collection, Some(doc! { "upload_path": 1 })).await;
   let res: Vec<String> = cursor.map(|x| x.unwrap().get_str("upload_path").unwrap().to_string()).collect().await;
  
   let buf = build_html(Webpage::Query, Some(res), Some(collection)).unwrap();
@@ -556,7 +552,7 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
   let client = get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await?;
 
   // checking if file already exists in database
-  let num_entries = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
+  let num_entries = Connection::simple_db_query(&client, Some("id"), Some(&conn.filehash), CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
   if num_entries > 0 {
     return Err(set_response_error("File already exists cancelling upload"))
   }
@@ -578,7 +574,7 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
 
   // don't want to overwrite files
   // if same name, append datetime
-  let path_check = Connection::simple_db_query(&client, "upload_path", &new_file_path, CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
+  let path_check = Connection::simple_db_query(&client, Some("upload_path"), Some(&new_file_path), CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
   if path_check > 0  {
     conn.filename.push('_');
     let curr_local_time = chrono::offset::Local::now().to_string();
@@ -614,7 +610,7 @@ async fn check(response: &mut hyper::Response<Body>, conn: &mut Connection) -> R
   // checking if record id already exists in database
   let coll = conn.filehash.split(':').next().unwrap(); // get collection name from id
 
-  let mut cursor = Connection::simple_db_query(&client, "id", &conn.filehash, CONFIG.get("database").unwrap(), coll, Some(doc! {"upload_name": 1})).await;  
+  let mut cursor = Connection::simple_db_query(&client, Some("id"), Some(&conn.filehash), CONFIG.get("database").unwrap(), coll, Some(doc! {"upload_name": 1})).await;  
   match cursor.try_next().await.unwrap() {
     Some(result) => response.headers_mut().insert("upload_name", hyper::header::HeaderValue::from_str(result.get_str("upload_name").unwrap()).unwrap()),
     None => response.headers_mut().insert("upload_name", hyper::header::HeaderValue::from_str("DNE").unwrap())
@@ -641,7 +637,7 @@ async fn cleanup(response: &mut hyper::Response<Body>, conn: &mut Connection) ->
     let mut in_database = false;
 
     for collection in database.list_collection_names(None).await? {
-      let num_entries = Connection::simple_db_query(&client, "upload_path", filepath.to_str().unwrap(), CONFIG.get("database").unwrap(), &collection, None).await.count().await;
+      let num_entries = Connection::simple_db_query(&client, Some("upload_path"), filepath.to_str(), CONFIG.get("database").unwrap(), &collection, None).await.count().await;
       if num_entries != 0 {
         in_database = true;
         break;
