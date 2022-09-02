@@ -5,7 +5,7 @@ use std::io::{Write, Read};
 use sha2::{Sha256, Digest};
 use hex;
 use tar::Builder;
-use flate2::write::GzEncoder;
+use flate2::{write::GzEncoder, read::GzDecoder};
 use flate2::Compression;
 
 use utils::utils;
@@ -60,6 +60,7 @@ impl<'a> Endpoint {
   const UPLOAD: &'a str = "/upload";
   const CLEANUP: &'a str = "/cleanup";
   const ID_CHECK: &'a str = "/check";
+  const UPDATE: &'a str = "/update";
 }
 
 impl User {
@@ -118,16 +119,28 @@ impl User {
   }
 
   pub fn send_output(&self) -> Result<hyper::HeaderMap<hyper::header::HeaderValue>, Box<dyn std::error::Error> >  {
-    self.send_data(Endpoint::UPLOAD)
+    Ok(self.send_data(Endpoint::UPLOAD)?.0)
   }
 
   pub fn check_id(&self) -> Result<String, Box<dyn std::error::Error>> {
     let result = self.send_data(Endpoint::ID_CHECK)?;
-    Ok(result.get("upload_name").unwrap().to_str().unwrap().to_string())
+    Ok(result.0.get("upload_name").unwrap().to_str().unwrap().to_string())
+  }
+
+  pub fn get_latest_version(&self) -> Result<(), Box<dyn std::error::Error>> {
+
+    let result = self.send_data(Endpoint::UPDATE)?.1.to_vec();
+    let mut unzipper = GzDecoder::new(&result[..]);
+    let mut uncompressed: Vec<u8> = Vec::new();
+    unzipper.read_to_end(&mut uncompressed)?;
+    let mut archive = tar::Archive::new(uncompressed.as_slice());
+    archive.unpack(env::current_dir().unwrap())?;
+
+    Ok(())
   }
  
 
-  fn send_data(&self, endpoint: &str) -> Result<hyper::HeaderMap<hyper::header::HeaderValue>, Box<dyn std::error::Error> > {
+  fn send_data(&self, endpoint: &str) -> Result<(hyper::HeaderMap<hyper::header::HeaderValue>, hyper::body::Bytes), Box<dyn std::error::Error> > {
     let mut server: String = self.db_table.get("Server").unwrap().to_string(); 
     server.insert_str(0, "https://");
     server.push_str(endpoint);
@@ -137,6 +150,7 @@ impl User {
       Endpoint::CLEANUP => &self.admin_password,
       Endpoint::UPLOAD => &self.key,
       Endpoint::ID_CHECK => &self.key,
+      Endpoint::UPDATE => &self.key,
       _ => ""
     };
     
@@ -154,11 +168,17 @@ impl User {
         let req = req.header("collection", &self.collection_name);
 
         match endpoint {
+          
           // can just reuse the filehash header for this
           Endpoint::ID_CHECK => {
             let req = req.header("filehash", self.record_file_hash.as_ref().unwrap());
             req.body(Body::from("")).unwrap()
           },
+
+          Endpoint::UPDATE => {
+            req.body(Body::from("")).unwrap()
+          },
+
           _ => {
             let req = req.header("filename", self.filename.as_ref().unwrap());
             let req = req.header("filehash", self.curr_file_hashes.get("id").unwrap());
@@ -186,7 +206,12 @@ impl User {
 
       let headers = resp.headers().to_owned();
       let body_bytes = hyper::body::to_bytes(resp.into_body()).await.unwrap();
-      let body_string = std::str::from_utf8(&body_bytes).unwrap();
+      
+      // Don't try to convert body to string if we are downloading an update
+      let body_string = match endpoint{
+        Endpoint::UPDATE => "",
+        _ => std::str::from_utf8(&body_bytes).unwrap(),
+      };
 
       if status != StatusCode::OK {
         println!("Error: {}", body_string);
@@ -194,7 +219,7 @@ impl User {
         Err(err)
       } else {
         println!("{}", body_string);
-        Ok(headers)
+        Ok((headers, body_bytes))
       }
       
     });
@@ -205,7 +230,7 @@ impl User {
    fn register(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let headers = self.send_data(Endpoint::REGISTER)?;
-    let new_key = headers.get("key").unwrap().as_bytes();
+    let new_key = headers.0.get("key").unwrap().as_bytes();
     println!("Registration with server successful\n");
 
     // create new file, overwriting the old. Set permissions
@@ -659,15 +684,30 @@ fn main() {
     println!("\n[WARNING] : FORCING UPLOAD. MAY CAUSE BREAK IN CHAIN OF ORIGIN\n");
   }
 
+  let mut get_latest = false;
+  if let Some(v) = args.iter().position(|x| x == "--update") {
+    args.remove(v);
+    get_latest = true;
+    println!("\nAttempting and update\n");
+  }
+
   println!("{:?}", args);
 
   user.command(args, collection_name);
 
-  // cannot conintue if no collection name is specified
+  // cannot continue if no collection name is specified
   if let Err(err) = user.track_files() { 
     println!("\n{}", err);
     return;
   };
+
+  // Will pull latest upload from this collection
+  if get_latest {
+
+    user.get_latest_version().unwrap();
+    
+    return
+  }
 
   // if need to update record, should communicate with server to check if current record id exists
   println!("Checking if previous version exists...");
@@ -688,6 +728,7 @@ fn main() {
     }
   } else if user.record_file_hashes.get("parent_id").unwrap() != "*" && !force_upload { // if parent id is * then it's a new branch and there is no problem
     println!("Error: Previous record not found in database, revert changes or delete REV file to create a new branch");
+    println!("Or run again with '--force'");
     return
   }
     

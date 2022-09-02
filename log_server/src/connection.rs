@@ -58,7 +58,7 @@ impl Connection {
     
   }
 
-  pub async fn simple_db_query(client: &Client, field: Option<&str>, value: Option<&str>, db: &str, collection: &str, return_fields: Option<Document>) -> mongodb::Cursor<Document> {
+  pub async fn simple_db_query(client: &Client, field: Option<&str>, value: Option<&str>, db: &str, collection: &str, return_fields: Option<Document>, sort_field: Option<Document>) -> mongodb::Cursor<Document> {
 
     // default to a "select *" query
     let filter = match field.is_some() {
@@ -69,13 +69,21 @@ impl Connection {
    
     let db = client.database(db).collection::<Document>(collection);    
 
+    let find_options = FindOptions::builder();
+
     // defaults to returning just the id field
     let find_options = match return_fields {
-      Some(doc) => FindOptions::builder().projection(doc).build(),
-      None => FindOptions::builder().projection(doc! { "id": 1 }).build()
+      Some(doc) => find_options.projection(doc),
+      None => find_options.projection(doc! { "id": 1 })
     };
 
-    return db.find(filter, find_options).await.unwrap()
+
+    let find_options = match sort_field {
+      Some(doc) => find_options.sort(doc),
+      None => find_options.sort(doc! {})
+    };
+
+    return db.find(filter, find_options.build()).await.unwrap()
   }
 
 }

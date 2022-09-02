@@ -313,6 +313,10 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
       check(&mut response, &mut conn).await
     },
 
+    (&Method::POST, "update") => {
+      get_latest(&mut response, &mut conn).await
+    },
+
     // method for cleaning up files left on disk but deleted from database
     (&Method::POST, "cleanup") => {
       cleanup(&mut response, &mut conn).await
@@ -506,7 +510,7 @@ async fn download(response: &mut hyper::Response<Body>, conn: &mut Connection, r
   let download_id = uri_path[2];
   let coll = download_id.split_once(":").unwrap().0;
 
-  let mut cursor = Connection::simple_db_query(&client, Some("id"), Some(download_id), CONFIG.get("database").unwrap(), coll, Some(doc! {"upload_path": 1, "upload_name": 1})).await;
+  let mut cursor = Connection::simple_db_query(&client, Some("id"), Some(download_id), CONFIG.get("database").unwrap(), coll, Some(doc! {"upload_path": 1, "upload_name": 1}), None).await;
   let res = cursor.next().await.unwrap().unwrap();
 
   let mut file = fs::File::open(res.get_str("upload_path").unwrap())?;
@@ -547,7 +551,7 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
     // Have picked a collection, now show uploads within collection
     3 => {
 
-      let cursor = Connection::simple_db_query(&client, None, None, CONFIG.get("database").unwrap(), uri_path[2], Some(doc! { "upload_name": 1 })).await;
+      let cursor = Connection::simple_db_query(&client, None, None, CONFIG.get("database").unwrap(), uri_path[2], Some(doc! { "upload_name": 1 }), None).await;
       let res: Vec<String> = cursor.map(|x| x.unwrap().get_str("upload_name").unwrap().to_string()).collect().await;
       Some(res)
 
@@ -557,7 +561,7 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
     _ => {
 
       let doc_path = &uri_path[4..];
-      let mut cursor = Connection::simple_db_query(&client, Some("upload_name"), Some(uri_path[3]), CONFIG.get("database").unwrap(), uri_path[2], Some(doc! {})).await;
+      let mut cursor = Connection::simple_db_query(&client, Some("upload_name"), Some(uri_path[3]), CONFIG.get("database").unwrap(), uri_path[2], Some(doc! {}), None).await;
       let res = cursor.next().await.unwrap().unwrap();
 
       let mut sub_doc: &Document = &res;
@@ -703,7 +707,7 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
   let client = get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await?;
 
   // checking if file already exists in database
-  let num_entries = Connection::simple_db_query(&client, Some("id"), Some(&conn.filehash), CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
+  let num_entries = Connection::simple_db_query(&client, Some("id"), Some(&conn.filehash), CONFIG.get("database").unwrap(), &conn.collection, None, None).await.count().await;
   if num_entries > 0 {
     return Err(set_response_error("File already exists cancelling upload"))
   }
@@ -725,7 +729,7 @@ async fn upload(response: &mut hyper::Response<Body>, conn: &mut Connection, req
 
   // don't want to overwrite files
   // if same name, append datetime
-  let path_check = Connection::simple_db_query(&client, Some("upload_path"), Some(&new_file_path), CONFIG.get("database").unwrap(), &conn.collection, None).await.count().await;
+  let path_check = Connection::simple_db_query(&client, Some("upload_path"), Some(&new_file_path), CONFIG.get("database").unwrap(), &conn.collection, None, None).await.count().await;
   if path_check > 0  {
     conn.filename.push('_');
     let curr_local_time = chrono::offset::Local::now().to_string();
@@ -761,12 +765,32 @@ async fn check(response: &mut hyper::Response<Body>, conn: &mut Connection) -> R
   // checking if record id already exists in database
   let coll = conn.filehash.split(':').next().unwrap(); // get collection name from id
 
-  let mut cursor = Connection::simple_db_query(&client, Some("id"), Some(&conn.filehash), CONFIG.get("database").unwrap(), coll, Some(doc! {"upload_name": 1})).await;  
+  let mut cursor = Connection::simple_db_query(&client, Some("id"), Some(&conn.filehash), CONFIG.get("database").unwrap(), coll, Some(doc! {"upload_name": 1}), None).await;  
   match cursor.try_next().await.unwrap() {
     Some(result) => response.headers_mut().insert("upload_name", hyper::header::HeaderValue::from_str(result.get_str("upload_name").unwrap()).unwrap()),
     None => response.headers_mut().insert("upload_name", hyper::header::HeaderValue::from_str("DNE").unwrap())
   };
   
+
+  Ok(())
+}
+
+async fn get_latest(response: &mut hyper::Response<Body>, conn: &mut Connection) -> Result<(), Box<dyn std::error::Error>> {
+
+  // Connecting to database 
+  let client = get_db_conn(&conn.username, &conn.password, CONFIG.get("database").unwrap()).await?;
+
+  // checking if record id already exists in database
+  let coll = conn.collection.split(':').next().unwrap(); // get collection name from id
+
+  let mut cursor = Connection::simple_db_query(&client, None, None, CONFIG.get("database").unwrap(), coll, Some(doc! {"upload_time": 1, "upload_path": 1}), Some(doc! {"upload_time": -1})).await;  
+  
+  let record = cursor.next().await.unwrap().unwrap();
+  let filepath = record.get_str("upload_path").unwrap();
+  let mut file = fs::File::open(filepath)?;
+  let mut data: Vec<u8> = Vec::new();
+  file.read_to_end(&mut data)?;
+  *response.body_mut() = Body::from(data);
 
   Ok(())
 }
@@ -788,7 +812,7 @@ async fn cleanup(response: &mut hyper::Response<Body>, conn: &mut Connection) ->
     let mut in_database = false;
 
     for collection in database.list_collection_names(None).await? {
-      let num_entries = Connection::simple_db_query(&client, Some("upload_path"), filepath.to_str(), CONFIG.get("database").unwrap(), &collection, None).await.count().await;
+      let num_entries = Connection::simple_db_query(&client, Some("upload_path"), filepath.to_str(), CONFIG.get("database").unwrap(), &collection, None, None).await.count().await;
       if num_entries != 0 {
         in_database = true;
         break;
