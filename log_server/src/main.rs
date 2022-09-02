@@ -290,6 +290,10 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
       query(&mut response, &mut conn, req).await 
     },
 
+    (&Method::GET, "download") => {
+      download(&mut response, &mut conn, req).await 
+    },
+
     // every other GET will assume is a file in the root web directory
     (&Method::GET, _) => {
       return_file(&mut response, req).await
@@ -491,7 +495,35 @@ fn check_cookie(headers: &hyper::HeaderMap) -> Result<String, Box<dyn std::error
   Ok(password)
 }
 
+async fn download(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) -> Result<(), Box<dyn std::error::Error>> {
+  
+  let password = check_cookie(req.headers())?;
+  let client = get_db_conn(&conn.username, &password, "admin").await?;
 
+  let uri_path: Vec<&str> = req.uri().path().split("/").collect();
+
+
+  let download_id = uri_path[2];
+  let coll = download_id.split_once(":").unwrap().0;
+
+  let mut cursor = Connection::simple_db_query(&client, Some("id"), Some(download_id), CONFIG.get("database").unwrap(), coll, Some(doc! {"upload_path": 1, "upload_name": 1})).await;
+  let res = cursor.next().await.unwrap().unwrap();
+
+  let mut file = fs::File::open(res.get_str("upload_path").unwrap())?;
+  let mut data: Vec<u8> = Vec::new();
+  file.read_to_end(&mut data)?;
+
+  let headers = response.headers_mut();
+  let mut disp_string = String::from("attachment; filename=\"");
+  disp_string.push_str(res.get_str("upload_name").unwrap());
+  disp_string.push_str(".tar.gz\"");
+  headers.insert(hyper::header::CONTENT_DISPOSITION, hyper::header::HeaderValue::from_str(&disp_string).unwrap());
+
+  *response.body_mut() = Body::from(data);
+
+  Ok(())
+
+}
 
 async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) -> Result<(), Box<dyn std::error::Error>> {
   
@@ -638,6 +670,17 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
 
         }
       }
+
+      // if has id then we can download this
+      if sub_doc.get_str("id").is_ok() {
+        let mut download_attr = String::from("action='/download/");
+        download_attr.push_str(sub_doc.get_str("id").unwrap());
+        download_attr.push_str("' method='get'");
+
+        let mut form = body.form().attr(&download_attr);
+        form.input().attr("type='submit' value='Download'");
+      }
+      
 
       // this only executes on pages showing the collections and the uploads within a collection
       *response.body_mut() = Body::from(buf.finish());
