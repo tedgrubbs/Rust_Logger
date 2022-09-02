@@ -652,6 +652,13 @@ fn main() {
     args.remove(v);
   }
 
+  let mut force_upload = false;
+  if let Some(v) = args.iter().position(|x| x == "--force") {
+    args.remove(v);
+    force_upload = true;
+    println!("\n[WARNING] : FORCING UPLOAD. MAY CAUSE BREAK IN CHAIN OF ORIGIN\n");
+  }
+
   println!("{:?}", args);
 
   user.command(args, collection_name);
@@ -679,7 +686,7 @@ fn main() {
       println!("Record exists, can update");
       user.update_record()
     }
-  } else if user.record_file_hashes.get("parent_id").unwrap() != "*" { // if parent id is * then it's a new branch and there is no problem
+  } else if user.record_file_hashes.get("parent_id").unwrap() != "*" && !force_upload { // if parent id is * then it's a new branch and there is no problem
     println!("Error: Previous record not found in database, revert changes or delete REV file to create a new branch");
     return
   }
