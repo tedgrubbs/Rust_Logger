@@ -127,7 +127,14 @@ impl User {
     Ok(result.0.get("upload_name").unwrap().to_str().unwrap().to_string())
   }
 
+  // Will download and unpack everything into the working directory.
+  // Maybe should try and enumerate the files that are changed.
   pub fn get_latest_version(&self) -> Result<(), Box<dyn std::error::Error>> {
+
+    println!("\n[WARNING] : This operation may overwrite current directory contents of {}", env::current_dir().unwrap().display());
+    println!("Press Enter to continue\n");
+    let stdin = io::stdin();
+    stdin.read_line(&mut String::new()).unwrap();
 
     let result = self.send_data(Endpoint::UPDATE)?.1.to_vec();
     let mut unzipper = GzDecoder::new(&result[..]);
@@ -200,7 +207,7 @@ impl User {
     let rt = Runtime::new().unwrap();
     let resp = rt.block_on(async move {
 
-      let resp = client.request(req).await.unwrap();
+      let resp = client.request(req).await?;
       let status = resp.status();
       
 
@@ -292,7 +299,6 @@ impl User {
   }
 
   pub fn command(&mut self, cmd_string: Vec<String>, c_name: String) {
-    println!("Command string received: {:?}", cmd_string);
 
     // get full input file path
     let mut input_file_path = String::new();
@@ -688,10 +694,8 @@ fn main() {
   if let Some(v) = args.iter().position(|x| x == "--update") {
     args.remove(v);
     get_latest = true;
-    println!("\nAttempting and update\n");
+    println!("\nAttempting an update\n");
   }
-
-  println!("{:?}", args);
 
   user.command(args, collection_name);
 
@@ -703,9 +707,9 @@ fn main() {
 
   // Will pull latest upload from this collection
   if get_latest {
-
-    user.get_latest_version().unwrap();
-    
+    if let Err(err) = user.get_latest_version() {
+      println!("\nError during update: {}", err);
+    }
     return
   }
 
