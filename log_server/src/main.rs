@@ -6,6 +6,8 @@
 //! otherwise HTTP/1.1 will be used.
 use core::task::{Context, Poll};
 use std::io::Read;
+use std::path::PathBuf;
+use bson::Document;
 use futures_util::{ready, StreamExt, TryStreamExt};
 use hyper::server::accept::Accept;
 use hyper::server::conn::{AddrIncoming, AddrStream};
@@ -288,9 +290,9 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
       query(&mut response, &mut conn, req).await 
     },
 
-    // after providing password through GET page
-    (&Method::GET, "collections") => {
-      show_collections(&mut response, &mut conn, req.headers()).await
+    // every other GET will assume is a file in the root web directory
+    (&Method::GET, _) => {
+      return_file(&mut response, req).await
     },
 
     (&Method::POST, "login") => {
@@ -347,10 +349,23 @@ async fn echo(req: Request<Body>) -> Result<Response<Body>,  hyper::Error> {
 #[derive(PartialEq)]
 enum Webpage {
   Home,
-  Collection,
   Query,
   ErrorPage,
-  LoginRedirect
+  LoginRedirect,
+}
+
+async fn return_file(response: &mut hyper::Response<Body>, req: Request<Body>) -> Result<(), Box<dyn std::error::Error>> {
+
+  check_cookie(req.headers())?;
+  
+  let uri_path = req.uri().path().split_once("/").unwrap().1;
+  let mut file = fs::File::open(uri_path)?;
+  let mut data: Vec<u8> = Vec::new();
+  file.read_to_end(&mut data)?;
+  *response.body_mut() = Body::from(data);
+
+  Ok(())
+
 }
 
 fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) -> Result<Buffer, Box<dyn std::error::Error>> {
@@ -363,7 +378,7 @@ fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) 
   writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
 
   if page == Webpage::LoginRedirect {
-    head.meta().attr("http-equiv='refresh' content='0; URL=/collections'");
+    head.meta().attr("http-equiv='refresh' content='0; URL=/query'");
     return Ok(buf)
   }
 
@@ -380,45 +395,26 @@ fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) 
     form.input().attr("type='submit' value='Enter'");
   }
 
-  if page == Webpage::Collection || page == Webpage::Query {
+  if page == Webpage::Query {
 
     let mut htmllist = body.ul();
 
     for collection_name in list.unwrap() {
+      let mut file_string = String::from(pagename.unwrap());
+      file_string.push_str("/");
+      file_string.push_str(&collection_name);
 
-      match page {
-
-        Webpage::Query => {
-          let mut file_string = String::from("");
-          file_string.push_str(&collection_name);
-          let file_string = file_string.split_once(CONFIG.get("data_path").unwrap()).unwrap().1;
-
-          writeln!(
-            htmllist.li().a().attr(
-                &format!("href='{}'", file_string)
-            ),
-            "{}", file_string,
-          ).unwrap()
-        },
-
-        Webpage::Collection => {
-          let mut query_endpoint = "query/".to_string();
-          query_endpoint.push_str(&collection_name);
-          writeln!(
-            htmllist.li().a().attr(
-                &format!("href='{}'", query_endpoint)
-            ),
-            "{}", collection_name,
-          ).unwrap()
-        }
-
-        _ => {}
-
-      };
+      writeln!(
+        htmllist.li().a().attr(
+            &format!("href='{}'", file_string)
+        ),
+        "{}", collection_name,
+      ).unwrap()
+    }
     
-    } 
+  } 
     
-  }
+  
 
   Ok(buf)
 }
@@ -495,55 +491,167 @@ fn check_cookie(headers: &hyper::HeaderMap) -> Result<String, Box<dyn std::error
   Ok(password)
 }
 
+
+
 async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req: Request<Body>) -> Result<(), Box<dyn std::error::Error>> {
   
-  let uri_path = req.uri().path();
-  let collection = uri_path.split_once("query/").unwrap().1;
-
   let password = check_cookie(req.headers())?;
-
-  // if tar.gz in the name assume you are grabbing a file.
-  if uri_path.contains("tar.gz") {
-    let mut filestring = CONFIG.get("data_path").unwrap().to_string();
-    filestring.push_str(collection);
-    let mut file = fs::File::open(filestring)?;
-    let mut file_buf: Vec<u8> = Vec::new();
-    file.read_to_end(&mut file_buf).unwrap();
-
-    response.headers_mut().insert("Content-Type", hyper::header::HeaderValue::from_str("application/octet-stream").unwrap());
-    *response.body_mut() = Body::from(file_buf);
-    return Ok(())
-  }
-
-  // Connecting to database 
   let client = get_db_conn(&conn.username, &password, "admin").await?;
 
-  // getting all upload paths to present to user
-  let cursor = Connection::simple_db_query(&client, None, None, CONFIG.get("database").unwrap(), collection, Some(doc! { "upload_path": 1 })).await;
-  let res: Vec<String> = cursor.map(|x| x.unwrap().get_str("upload_path").unwrap().to_string()).collect().await;
- 
-  let buf = build_html(Webpage::Query, Some(res), Some(collection)).unwrap();
+  let uri_path: Vec<&str> = req.uri().path().split("/").collect();
 
-  // Finally, call finish() to extract the buffer.
+  // handling queries based on the size of the path.
+  // lengths of 2 and 3 can be handled by the generic html builder. 
+  // Any more than that uses a specific html code
+
+  let res = match uri_path.len() {
+
+    // root query endpoint, show collections
+    2 => {
+      let db = client.database(CONFIG.get("database").ok_or("DB not found")?);
+      Some(db.list_collection_names(None).await.unwrap())
+    },
+
+    // Have picked a collection, now show uploads within collection
+    3 => {
+
+      let cursor = Connection::simple_db_query(&client, None, None, CONFIG.get("database").unwrap(), uri_path[2], Some(doc! { "upload_name": 1 })).await;
+      let res: Vec<String> = cursor.map(|x| x.unwrap().get_str("upload_name").unwrap().to_string()).collect().await;
+      Some(res)
+
+    },
+
+    // Have picked an upload, will use custom webpage to show details
+    _ => {
+
+      let doc_path = &uri_path[4..];
+      let mut cursor = Connection::simple_db_query(&client, Some("upload_name"), Some(uri_path[3]), CONFIG.get("database").unwrap(), uri_path[2], Some(doc! {})).await;
+      let res = cursor.next().await.unwrap().unwrap();
+
+      let mut sub_doc: &Document = &res;
+      let mut item: Option<&bson::Bson> = None;
+
+      // breaks if we get something that is not a document
+      for name in doc_path {
+        if let Ok(new_doc) = sub_doc.get_document(name) {
+          sub_doc = new_doc;
+        } else {
+          item = Some(sub_doc.get(name).unwrap());
+          break
+        }
+      }
+
+      // special code to handle non-document structures
+      if item.is_some() {
+
+        let headers = response.headers_mut();
+        headers.insert(hyper::header::CONTENT_TYPE, hyper::header::HeaderValue::from_str("text/html; charset=UTF-8").unwrap()); // forces things to not trigger a download from the browser
+
+        // want to change markdown into nice html
+        // lots of requirements needed to make this work
+        // Need pandoc installed locally.
+        // Need the mathjax directory in the root web directory
+        // Right now using the default html template but this could be changed in the future.
+        if uri_path.last().unwrap().contains(".md") {
+          
+          let mut pd = pandoc::new();
+          pd.set_input(pandoc::InputKind::Pipe(item.unwrap().to_string()));
+          let pd_ext: Vec<pandoc::MarkdownExtension> = Vec::new();
+          pd.set_output_format(pandoc::OutputFormat::Html, pd_ext);
+          pd.set_output(pandoc::OutputKind::Pipe);
+          pd.add_option(pandoc::PandocOption::MathJax(Some("/mathjax/MathJax.js?config=TeX-AMS_CHTML-full".to_string())));
+          pd.add_option(pandoc::PandocOption::Template(PathBuf::from("default.html5")));
+
+          let pd_out = match pd.execute().unwrap() {
+            pandoc::PandocOutput::ToBuffer(s) => s,
+            _ => {
+              let err: Box<dyn std::error::Error> = String::from("Pandoc parsing broke").into();
+              return Err(err);
+            }
+          };
+
+          *response.body_mut() = Body::from(pd_out);
+
+        } else {
+
+          *response.body_mut() = Body::from(item.unwrap().to_string());
+
+        }
+        
+        return Ok(())
+
+      }
+
+      // else we now show the all elements within this document
+
+      let doc_keys: Vec<String> = sub_doc.keys().map(|x| x.to_string()).collect();
+
+      // html time
+      let mut buf = Buffer::new();
+      writeln!(buf, "<!-- My website -->").unwrap();
+      buf.doctype();
+      let mut html = buf.html().attr("lang='en'");
+      let mut head = html.head();
+      writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
+      let mut body = html.body().attr("style='background-color:#808080;'");
+      writeln!(body.h1(), "{}", uri_path.last().unwrap()).unwrap();
+       
+      let mut htmllist = body.ul();
+
+      for k in doc_keys {
+
+        let val = sub_doc.get(&k).unwrap();
+
+        // if is a Document then we need to list sub docs as list 
+        if val.element_type() == bson::spec::ElementType::EmbeddedDocument {
+          let mut url_string = uri_path.last().unwrap().to_string();
+          url_string.push_str("/");
+          url_string.push_str(&k);
+          url_string.push_str("/");
+
+          writeln!(
+            htmllist.li().a(),
+            "{}: ", k
+          ).unwrap();
+
+          let mut sub_list = htmllist.ul();
+          let val = val.as_document().unwrap();
+          let val_keys: Vec<String> = val.keys().map(|x| x.to_string()).collect();
+
+          for vk in val_keys {
+
+            let mut url_post_string = String::from(&vk);
+            url_post_string.insert_str(0, &url_string);
+            writeln!(
+              sub_list.li().a().attr(&format!("href='{}'", url_post_string)),
+              "{}", vk
+            ).unwrap();
+
+          }
+
+        } else { // showing other elements normally
+
+          writeln!(
+            htmllist.li().a(),
+            "{}: {}", k, val.to_string() 
+          ).unwrap()
+
+        }
+      }
+
+      // this only executes on pages showing the collections and the uploads within a collection
+      *response.body_mut() = Body::from(buf.finish());
+      return Ok(())
+
+
+    }
+
+    
+  };
+
+  let buf = build_html(Webpage::Query, res, Some(uri_path.last().unwrap())).unwrap();
   *response.body_mut() = Body::from(buf.finish());
 
-  Ok(())
-}
-
-async fn show_collections(response: &mut hyper::Response<Body>, conn: &mut Connection, req: &hyper::HeaderMap) -> Result<(), Box<dyn std::error::Error>> {
-  
-  let password = check_cookie(req)?;
-  
-  // Connecting to database to verify user and get collection list 
-  let client = get_db_conn(&conn.username, &password, "admin").await?;
-  
-  // Get a handle to a database.
-  let db = client.database(CONFIG.get("database").ok_or("DB not found")?);
-  
-  let buf = build_html(Webpage::Collection, Some(db.list_collection_names(None).await.unwrap()), None).unwrap();
-  
-  // Finally, call finish() to extract the buffer.
-  *response.body_mut() = Body::from(buf.finish());
   Ok(())
 }
 
