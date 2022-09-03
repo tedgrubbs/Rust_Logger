@@ -1,4 +1,6 @@
 
+Note that MongoDB currently only supports Ubuntu 20, 18, 16 as described in the below install link. Some dumb workaround are required for it to work with Ubunut 22
+
 <<<< Installation >>>>
 Needed to make the mongodb user owner of the following directory/file in order to start up
 sudo chown -R mongodb:mongodb /var/lib/mongodb
