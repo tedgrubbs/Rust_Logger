@@ -45,6 +45,8 @@ You might ask "well why not use git?". You certainly could use git to track thes
 - `log options`:
   - `--coll <collection name>` - specifies collection where file will go
   - `--name <upload name>` - specific name of file or `upload_name`
+  - `--force` - Will force upload whenever `parent_id` is not in database. May cause a break in revision chain
+  - `--update` - Will pull the latest upload from the collection and unpack it into your chosen directory
 - `log clean` - Will remove any "dead" files deleted from database but still on the server filesystem.
   - Example: `log clean`
 
@@ -228,7 +230,7 @@ If you try to log the directory again we are given an error from `log`:
 
 ![Alt text](imgs/same_file_error.png)
 
-The `log_server` uses the `upload_hash` to stop us from sending the exact set of files twice. `upload_hash` is a hash of the uploaded tar.gz file. Since we have made no changes, this hash has not changed.
+The `log_server` uses the `id` to stop us from sending the exact set of files twice. `upload_hash` is a hash of the uploaded tar.gz file. Since we have made no changes, this hash has not changed.
 
 Let's see what happens when add a new arbitrary file:
 
