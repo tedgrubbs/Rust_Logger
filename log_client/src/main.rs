@@ -758,21 +758,13 @@ fn main() {
     true => user.compress_and_hash().unwrap()
   };
 
-  // if record does not exist, use currently provided filename 
-  // if does exists and no new filename is given, use old filename
-  if og_upload_name != "DNE" && filename.is_empty() {
-
-    user.filename = Some(og_upload_name);
-
-  } else {
-    
-    // if no name given will default to directory name
-    if filename.is_empty() {
-      filename = env::current_dir().unwrap().file_name().unwrap().to_str().unwrap().to_string();
-    }
-    user.filename = Some(filename);
-    
+  // if no name given will default to directory name
+  if filename.is_empty() {
+    filename = env::current_dir().unwrap().file_name().unwrap().to_str().unwrap().to_string();
   }
+  user.filename = Some(filename);
+    
+  
 
   println!("Attempting upload...");
   match user.send_output() {
