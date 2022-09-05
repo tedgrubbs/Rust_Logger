@@ -131,11 +131,6 @@ impl User {
   // Maybe should try and enumerate the files that are changed.
   pub fn get_latest_version(&self) -> Result<(), Box<dyn std::error::Error>> {
 
-    println!("\n[WARNING] : This operation may overwrite current directory contents of {}", env::current_dir().unwrap().display());
-    println!("Press Enter to continue\n");
-    let stdin = io::stdin();
-    stdin.read_line(&mut String::new()).unwrap();
-
     let result = self.send_data(Endpoint::UPDATE)?.1.to_vec();
     let mut unzipper = GzDecoder::new(&result[..]);
     let mut uncompressed: Vec<u8> = Vec::new();
@@ -694,7 +689,6 @@ fn main() {
   if let Some(v) = args.iter().position(|x| x == "--update") {
     args.remove(v);
     get_latest = true;
-    println!("\nAttempting an update\n");
   }
 
   user.command(args, collection_name);
@@ -704,14 +698,6 @@ fn main() {
     println!("\n{}", err);
     return;
   };
-
-  // Will pull latest upload from this collection
-  if get_latest {
-    if let Err(err) = user.get_latest_version() {
-      println!("\nError during update: {}", err);
-    }
-    return
-  }
 
   // if need to update record, should communicate with server to check if current record id exists
   println!("Checking if previous version exists...");
@@ -725,17 +711,48 @@ fn main() {
 
   println!("Version check done\n");
 
-  if og_upload_name != "DNE" {
+  // Need to check if there has been a change.
+  // If there is a local change cannot update.
+  if get_latest { 
+    
     if user.needs_update {
+
+      println!("Current directory has changed. Pulling updates will overwrite your changes. Update stopped");
+      
+    } else {
+
+      println!("Getting latest version of {}", &user.collection_name);
+      if let Err(err) = user.get_latest_version() {
+        println!("\nError during update: {}", err);
+      } else {
+        println!("Update successful");
+      }
+      
+    }
+
+    return
+    
+  }
+
+  // Calculating new REV file if needed
+  if og_upload_name != "DNE" {
+
+    if user.needs_update {
+
       println!("Record exists, can update");
       user.update_record()
-    }
+
+    }  
+
   } else if user.record_file_hashes.get("parent_id").unwrap() != "*" && !force_upload { // if parent id is * then it's a new branch and there is no problem
+
     println!("Error: Previous record not found in database, revert changes or delete REV file to create a new branch");
     println!("Or run again with '--force'");
     return
+
   }
     
+  // Running commands and compressing directory for upload
   match compress_only {
     false => user.execute().unwrap(),
     true => user.compress_and_hash().unwrap()

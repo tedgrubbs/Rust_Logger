@@ -283,9 +283,7 @@ You may also specify a specifc name for the upload with `--name`. This changes t
 ## `log` - `update`
 This program feels a lot like git, so there must be the equivalent of a git pull command. There is. It can be executed by providing the `--update` option. When this option is present, `log` will go to the specified collection and download the latest upload from the server. These files will then be unpacked into your selected directory. 
 
-__BE WARNED__: This is not at all like a git pull. There is currently no checking for file conflicts, so if any files in your current directory match the filename in the download, they will be overwritten. 
-
-I may soon try to remedy this by performing a check to make sure that there are no conflicts before performing the update.
+However, if there are local changes in your local directory, this operation will fail - just like with git. Your changes will either need to be uploaded or removed before attempting the update again.
 
 
 
