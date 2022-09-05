@@ -237,9 +237,19 @@ impl User {
 
     // create new file, overwriting the old. Set permissions
     self.get_root();
-    let mut file = fs::File::create(KEY_FILE).expect("error creating new credential file");
-    file.set_permissions(fs::Permissions::from_mode(0o600)).expect("Permission set failure");
+    let mut file: fs::File;
+    if !path::Path::new(KEY_FILE).exists() {
+      file = fs::File::create(KEY_FILE).expect("error creating new credential file");
+      file.set_permissions(fs::Permissions::from_mode(0o600)).expect("Permission set failure");
+    } else {
+      file = fs::OpenOptions::new().append(true).open(KEY_FILE).unwrap();
+    }
+    
+    // using hostname without port number for storing different keys
+    file.write_all(self.db_table.get("Server").unwrap().split_once(":").unwrap().0.as_bytes()).unwrap();
+    file.write_all(b" : ").unwrap();
     file.write_all(new_key).unwrap();
+    file.write_all(b"\n").unwrap();
     file.flush().unwrap();
     self.return_root();
 
@@ -255,7 +265,27 @@ impl User {
 
   pub fn check_creds(&mut self) -> Result<(), Box<dyn std::error::Error> > {
 
+    let mut need_to_register = false;
+
     if !path::Path::new(KEY_FILE).exists() {
+
+      need_to_register = true;
+
+    } else { // if key file does exist need to check if we have a key for this current site
+
+      self.get_root();
+      let mut key_file_hash = HashMap::new();
+      utils::read_file_into_hash(KEY_FILE, None, &mut key_file_hash)?;
+      let key_check = key_file_hash.get(self.db_table.get("Server").unwrap().split_once(":").unwrap().0);
+      if key_check.is_none() {
+        need_to_register = true;
+      }
+      self.return_root();
+
+    }
+ 
+
+    if need_to_register {
 
       println!("No credential file found. Starting registration process.\nPlease enter the administrator password: ");
       self.admin_password.push_str(&rpassword::read_password().unwrap());
@@ -264,8 +294,9 @@ impl User {
     }
 
     self.get_root();
-    let mut file = fs::File::open(KEY_FILE).expect("error opening credential file");
-    file.read_to_string(&mut self.key)?;
+    let mut key_file_hash = HashMap::new();
+    utils::read_file_into_hash(KEY_FILE, None, &mut key_file_hash)?;
+    self.key = key_file_hash.get(self.db_table.get("Server").unwrap().split_once(":").unwrap().0).unwrap().to_string();
     self.return_root();
 
     println!("Key found on local system");

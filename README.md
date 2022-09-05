@@ -192,6 +192,8 @@ If everything runs properly this whole process is nearly instantaneous and unnot
 
 If for whatever reason your account is dropped from the database, you will need to re-register. To do this you will first need to delete the `.Rust_Logger_Credentials` file. Then the next run of `log` will perform the registration process again.
 
+Connections to different servers are also supported. Whenever you use a new `Server` in the `log_client` config, the registration will run again as explained above.
+
 ## `log` - upload
 >*You absolutely MUST read this to be able to use the Rust_Logger in any meaningful way.*
 
