@@ -278,7 +278,7 @@ You can ignore this error however by providing the `--force` option in your comm
 ## `log` - `coll` and `name`
 When you upload a new directory for the first time you must specify the `--coll` option followed by a collection name. This will tell `log` where to upload this file. Subsequent uploads will reuse this collection, unless a new collection is specified.
 
-You may also specify a specifc name for the upload with `--name`. This changes the `upload_path` field in the database. Subsequent uploads will default to whatever name was used first- with the current datetime appended. If there is no name specified for the first upload, will default to the directory name.
+You may also specify a specifc name for the upload with `--name`. This changes the `upload_path` and `upload_name` fields in the database. Any uploads without `--name` specified will default to the directory name. If a duplicate `upload_name` occurs, the server will append the current datetime to this name.
 
 ## `log` - `update`
 This program feels a lot like git, so there must be the equivalent of a git pull command. There is. It can be executed by providing the `--update` option. When this option is present, `log` will go to the specified collection and download the latest upload from the server. These files will then be unpacked into your selected directory. 
