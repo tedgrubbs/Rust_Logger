@@ -568,12 +568,22 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
       let mut item: Option<&bson::Bson> = None;
 
       // breaks if we get something that is not a document
-      for name in doc_path {
+      for (name_idx, name) in doc_path.iter().enumerate() {
+
+        let name = name.replace("%20", " "); // replaces the %20 with an actual space character
+
         if let Ok(new_doc) = sub_doc.get_document(name) {
+
           sub_doc = new_doc;
-        } else {
-          item = Some(sub_doc.get(name).unwrap());
+
+        } else { // found something that isn't a document
+
+          // attempts to treat next element in path as an actual file.
+          // If this is instead something with a directory structure like /dir1/dir2/file.txt, this will fail
+          // If we just grab everything else and join with a '/' then it will work.
+          item = Some(sub_doc.get(doc_path[name_idx..].join("/").replace("%20", " ")).unwrap());        
           break
+
         }
       }
 
@@ -657,6 +667,7 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
           for vk in val_keys {
 
             let mut url_post_string = String::from(&vk);
+            if url_post_string.starts_with(".") { continue; } // ignore hidden files
             url_post_string.insert_str(0, &url_string);
             writeln!(
               sub_list.li().a().attr(&format!("href='{}'", url_post_string)),
