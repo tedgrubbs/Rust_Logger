@@ -565,7 +565,7 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
       let res = cursor.next().await.unwrap().unwrap();
 
       let mut sub_doc: &Document = &res;
-      let mut item: Option<&bson::Bson> = None;
+      let mut item: Option<String> = None;
 
       // breaks if we get something that is not a document
       for (name_idx, name) in doc_path.iter().enumerate() {
@@ -581,7 +581,7 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
           // attempts to treat next element in path as an actual file.
           // If this is instead something with a directory structure like /dir1/dir2/file.txt, this will fail
           // If we just grab everything else and join with a '/' then it will work.
-          item = Some(sub_doc.get(doc_path[name_idx..].join("/").replace("%20", " ")).unwrap());        
+          item = Some(doc_path[name_idx..].join("/").replace("%20", " "));
           break
 
         }
@@ -590,8 +590,13 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
       // special code to handle non-document structures
       if item.is_some() {
 
+        let item = item.as_ref();
+
+        let item_contents = sub_doc.get(item.unwrap()).unwrap();
+
         let headers = response.headers_mut();
-        headers.insert(hyper::header::CONTENT_TYPE, hyper::header::HeaderValue::from_str("text/html; charset=UTF-8").unwrap()); // forces things to not trigger a download from the browser
+         // forces things to not trigger a download from the browser
+        headers.insert(hyper::header::CONTENT_TYPE, hyper::header::HeaderValue::from_str("text/html; charset=UTF-8").unwrap());
 
         // want to change markdown into nice html
         // lots of requirements needed to make this work
@@ -601,10 +606,10 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
         if uri_path.last().unwrap().contains(".md") {
           
           let mut pd = pandoc::new();
-          let filestring = item.unwrap().to_string();
+          let filestring = item_contents.to_string();
           // these crazy splits remove the random quotation marks at the beginning and end
           pd.set_input(pandoc::InputKind::Pipe(filestring.split_at(1).1.split_at(filestring.len()-2).0.to_string())); 
-          
+
           let pd_ext: Vec<pandoc::MarkdownExtension> = Vec::new();
           pd.set_output_format(pandoc::OutputFormat::Html, pd_ext);
           pd.set_output(pandoc::OutputKind::Pipe);
@@ -623,7 +628,30 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
 
         } else {
 
-          *response.body_mut() = Body::from(item.unwrap().to_string());
+          // getting binary data out of Mongo requires working with the RawDocument types.
+          // So we are converting the doc into a raw doc and getting the binary data there.
+          if item_contents.element_type() == bson::spec::ElementType::Binary {
+
+            let raw_doc = bson::RawDocumentBuf::from_document(sub_doc).unwrap();
+            let binary = raw_doc.get_binary(item.unwrap()).unwrap().bytes.to_owned();
+            
+            // have to change content-type
+            let ct_header = headers.get_mut(hyper::header::CONTENT_TYPE).unwrap(); 
+            if item.unwrap().contains(".pdf") {
+              *ct_header = hyper::header::HeaderValue::from_str("application/pdf; charset=binary").unwrap();
+            } else {
+              *ct_header = hyper::header::HeaderValue::from_str("application/octet-stream; charset=binary").unwrap();
+            }
+              
+            *response.body_mut() = Body::from(binary);
+
+          } else {
+
+            *response.body_mut() = Body::from(item_contents.to_string());
+            
+          }
+
+          
 
         }
         

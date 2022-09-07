@@ -75,9 +75,26 @@ impl Processor {
       rev_needed_files.contains(&&filename) || 
       (get_dump_files && filename.contains("dump")) {
 
-        let mut buf = String::new();
-        file.read_to_string(&mut buf)?;
-        doc.insert(filename, buf);   
+        let mut vec_buf: Vec<u8> = Vec::new();
+        file.read_to_end(&mut vec_buf).unwrap();
+    
+        // will attempt to insert file contents as string.
+        // This will fail for binary files due to non-utf8 characters.
+        // The else block then uses the bson Binary type to insert it as binary data.
+        if let Ok(new_string) = std::str::from_utf8(&vec_buf) {
+
+          doc.insert(filename, new_string);
+
+        } else {
+          // kind of a hack to use the mongo binary type
+          let mut binary = bson::Binary::from_uuid(bson::Uuid::new());
+          binary.bytes = vec_buf;
+          binary.subtype = bson::spec::BinarySubtype::Generic;
+          doc.insert(filename, binary);
+
+        }
+
+        
 
       } 
     }
@@ -359,7 +376,14 @@ impl Processor {
       // Diffing the modified files
       for file in modified_files {
         
-        let new_file = file_doc.get(file).unwrap().as_str().unwrap();
+        // cannot do diff on binary files. This will break when you try and convert them to strings
+        let new_file = match file_doc.get(file).unwrap().as_str() {
+          Some(s) => s,
+          None => {
+            diffs.insert(file, "");
+            continue;
+          }
+        };
         
         // this gets the file from the database
         let old_file = match parent.get("files").unwrap().as_document().unwrap().get(file) {
