@@ -601,7 +601,10 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
         if uri_path.last().unwrap().contains(".md") {
           
           let mut pd = pandoc::new();
-          pd.set_input(pandoc::InputKind::Pipe(item.unwrap().to_string()));
+          let filestring = item.unwrap().to_string();
+          // these crazy splits remove the random quotation marks at the beginning and end
+          pd.set_input(pandoc::InputKind::Pipe(filestring.split_at(1).1.split_at(filestring.len()-2).0.to_string())); 
+          
           let pd_ext: Vec<pandoc::MarkdownExtension> = Vec::new();
           pd.set_output_format(pandoc::OutputFormat::Html, pd_ext);
           pd.set_output(pandoc::OutputKind::Pipe);
