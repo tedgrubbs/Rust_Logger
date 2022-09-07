@@ -581,18 +581,22 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
           // attempts to treat next element in path as an actual file.
           // If this is instead something with a directory structure like /dir1/dir2/file.txt, this will fail
           // If we just grab everything else and join with a '/' then it will work.
-          item = Some(doc_path[name_idx..].join("/").replace("%20", " "));
+          item = Some(doc_path[name_idx..].join("/").replace("%20", " "));  
           break
 
         }
       }
 
+      let item = item.as_ref();
+      let item_contents = match item {
+        Some(i) => sub_doc.get(i),
+        None => None
+      };
+
       // special code to handle non-document structures
-      if item.is_some() {
+      if item.is_some() && item_contents.is_some() {
 
-        let item = item.as_ref();
-
-        let item_contents = sub_doc.get(item.unwrap()).unwrap();
+        let item_contents = item_contents.unwrap();
 
         let headers = response.headers_mut();
          // forces things to not trigger a download from the browser
@@ -661,7 +665,16 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
 
       // else we now show the all elements within this document
 
-      let doc_keys: Vec<String> = sub_doc.keys().map(|x| x.to_string()).collect();
+      let doc_keys: Vec<String>;
+
+      // if we are here and item is some, then maybe we are looking at a directory.
+      if item.is_some() {
+        let mut item_copy = item.unwrap().to_owned();
+        item_copy.push('/');
+        doc_keys = sub_doc.keys().filter(|x| x.starts_with(&item_copy)).map(|x| x.to_string()).collect();
+      } else {
+        doc_keys = sub_doc.keys().map(|x| x.to_string()).collect();
+      }
 
       // html time
       let mut buf = Buffer::new();
@@ -674,12 +687,14 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
       writeln!(body.h1(), "{}", uri_path.last().unwrap()).unwrap();
        
       let mut htmllist = body.ul();
+      let mut dirs_added: Vec<String> = Vec::new();
 
       for k in doc_keys {
 
         let val = sub_doc.get(&k).unwrap();
 
         // if is a Document then we need to list sub docs as list 
+        // don't like that a lot of code is copy/pasted between the 2 blocks.
         if val.element_type() == bson::spec::ElementType::EmbeddedDocument {
           let mut url_string = uri_path.last().unwrap().to_string();
           url_string.push_str("/");
@@ -697,7 +712,19 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
 
           for vk in val_keys {
 
-            let mut url_post_string = String::from(&vk);
+            // removes the / char for directories
+            let vk = match vk.split_once("/") {
+              Some(v) => {
+                let trimmed_v = v.0.to_string();
+                if dirs_added.contains(&trimmed_v) { continue; } // prevents same directory from being shown twice
+                dirs_added.push(trimmed_v);
+                dirs_added.last().unwrap()
+
+              },
+              None => &vk
+            };
+
+            let mut url_post_string = String::from(vk);
             if url_post_string.starts_with(".") { continue; } // ignore hidden files
             url_post_string.insert_str(0, &url_string);
             writeln!(
@@ -709,10 +736,47 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
 
         } else { // showing other elements normally
 
-          writeln!(
-            htmllist.li().a(),
-            "{}: {}", k, val.to_string() 
-          ).unwrap()
+          // want to show directory contents as links
+          if item.is_some() {
+
+            let mut url_string = uri_path.last().unwrap().to_string();
+            url_string.push_str("/");
+            
+            let k = k.split_once(item.unwrap()).unwrap().1.split_at(1).1.to_string(); // removes top directory         
+
+            // removes the / char for directories
+            let k = match k.split_once("/") {
+              Some(v) => {
+
+                let trimmed_v = v.0.to_string();
+                if dirs_added.contains(&trimmed_v) { continue; } // prevents same directory from being shown twice
+                dirs_added.push(trimmed_v);
+                dirs_added.last().unwrap()
+
+              },
+              None => &k
+            };
+
+            let mut url_post_string = String::from(k);
+
+            if url_post_string.starts_with(".") { continue; } // ignore hidden files
+            url_post_string.insert_str(0, &url_string);
+
+            writeln!(
+              htmllist.li().a().attr(&format!("href='{}'", url_post_string)),
+              "{}", k
+            ).unwrap();
+
+          } else { // everything else
+
+            writeln!(
+              htmllist.li().a(),
+              "{}: {}", k, val.to_string() 
+            ).unwrap()
+
+          }
+
+          
 
         }
       }
