@@ -384,7 +384,10 @@ fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) 
   let mut html = buf.html().attr("lang='en'");
   let mut head = html.head();
   writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
-  head.link().attr("rel='stylesheet' href='https://taylorgrubbs.online/pandoc_theme.css'");
+
+  let mut css_link = String::from("rel='stylesheet' href='<CSS_LINK>'");
+  css_link = css_link.replace("<CSS_LINK>", CONFIG.get("css").unwrap());
+  head.link().attr(&css_link);
   
   if page == Webpage::LoginRedirect {
     head.meta().attr("http-equiv='refresh' content='0; URL=/query'");
@@ -685,7 +688,10 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
       let mut html = buf.html().attr("lang='en'");
       let mut head = html.head();
       writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
-      head.link().attr("rel='stylesheet' href='https://taylorgrubbs.online/pandoc_theme.css'");
+
+      let mut css_link = String::from("rel='stylesheet' href='<CSS_LINK>'");
+      css_link = css_link.replace("<CSS_LINK>", CONFIG.get("css").unwrap());
+      head.link().attr(&css_link);
   
       let mut body_temp = html.body();
       let mut body = body_temp.main();

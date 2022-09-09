@@ -11,12 +11,13 @@ pub struct Config {
 
 impl Config {
 
-  const ALLOWED_SERVER_OPTIONS: [&'static str; 5] = [
+  const ALLOWED_SERVER_OPTIONS: [&'static str; 6] = [
       "server_port",
       "cert_path", 
       "key_path", 
       "data_path", 
-      "database"
+      "database",
+      "css"
   ];
 
   pub fn new() -> Config {
