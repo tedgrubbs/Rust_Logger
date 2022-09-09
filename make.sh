@@ -2,9 +2,13 @@
 
 # This just builds the release version of the program and stores it in a build/ directory with time and hash to loosely manage versioning
 
+EXECUTABLE=$1
+cd $EXECUTABLE
 cargo build --release
-EXECUTABLE="tls_server"
+
 OUTPUT_DIR="build"
+mkdir $OUTPUT_DIR 2>/dev/null
+
 
 
 # tries to move build to build directory. Stores any error messages
@@ -19,3 +23,5 @@ else
   echo -e "\nBuild complete\n"
   cat $OUTPUT_DIR/build.txt
 fi
+
+cd ..

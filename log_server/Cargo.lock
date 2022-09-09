@@ -899,6 +899,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "log_server"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "bson",
+ "chrono",
+ "cookie",
+ "flate2",
+ "futures-util",
+ "global",
+ "home",
+ "html-builder",
+ "hyper",
+ "lazy_static",
+ "mongodb",
+ "nix",
+ "pandoc",
+ "rand",
+ "rustls",
+ "rustls-pemfile 1.0.0",
+ "serde_json",
+ "similar",
+ "tar",
+ "tokio",
+ "tokio-rustls",
+ "utils",
+]
+
+[[package]]
 name = "lru-cache"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1627,35 +1656,6 @@ name = "tinyvec_macros"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
-
-[[package]]
-name = "tls_server"
-version = "0.1.0"
-dependencies = [
- "async-std",
- "bson",
- "chrono",
- "cookie",
- "flate2",
- "futures-util",
- "global",
- "home",
- "html-builder",
- "hyper",
- "lazy_static",
- "mongodb",
- "nix",
- "pandoc",
- "rand",
- "rustls",
- "rustls-pemfile 1.0.0",
- "serde_json",
- "similar",
- "tar",
- "tokio",
- "tokio-rustls",
- "utils",
-]
 
 [[package]]
 name = "tokio"
