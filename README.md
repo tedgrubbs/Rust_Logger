@@ -1,4 +1,6 @@
-# Rust_Logger 
+# Rust_Logger
+
+Please email any questions or comments directly to tegrubbs1@gmail.com
 
 ## A git-like utility for easily tracking file changes
 
@@ -6,10 +8,35 @@ My past experiences with computational experiments - in AI, physics, engineering
 
 You might ask "well why not use git?". You certainly could use git to track these types of changes but git is more meant for more significant code-base changes that are more or less permanent. In computational science you might want to only change 1 or 2 variables and see how that changes the result. This can quickly generate thousands of git commits that would be impossible to keep track of or analyze using vanilla git or github. As computational scientists we need to easily visualize the relationships between potentially thousands or millions of experimental inputs and outputs. This is what has motivated the current project.
 
+## Quick Install
+Downloads for the relevant executables, README, and installation scripts can be found on my personal website at:
+
+https://taylorgrubbs.online/downloads/
+
+You only actually need to download and run the relevant installers to use the software. There are no software prerequisites needed to run the installers, but you will need superuser privileges:
+
+```bash
+# Server installation
+chmod +x log_server_installer.sh 
+./log_server_installer.sh
+
+# log installation
+chmod +x log_installer.sh 
+./log_installer.sh
+```
+
+The installer also functions as an update script. If you run it again, the latest version of the code is downloaded and reinstalled on your system.
+
+You can also uninstall the software with the `-u` option:
+```bash
+./log_installer.sh -u # This will remove the software from the system
+```
+
 ## Contents
 
 - [Rust_Logger](#rust_logger)
   - [A git-like utility for easily tracking file changes](#a-git-like-utility-for-easily-tracking-file-changes)
+  - [Quick Install](#quick-install)
   - [Contents](#contents)
   - [Quick Help](#quick-help)
     - [`Commands`:](#commands)
@@ -20,9 +47,9 @@ You might ask "well why not use git?". You certainly could use git to track thes
   - [Setup - log_server: Prerequisite TLS](#setup---log_server-prerequisite-tls)
   - [Setup - log_server](#setup---log_server-1)
   - [Setup - log_server config](#setup---log_server-config)
-- [Setup - log_client](#setup---log_client)
-  - [Setup - log_client](#setup---log_client-1)
-  - [Setup - log_client config](#setup---log_client-config)
+- [Setup - log](#setup---log)
+  - [Setup - log](#setup---log-1)
+  - [Setup - log config](#setup---log-config)
 - [`log`](#log)
   - [`log` - the command-line utility](#log---the-command-line-utility)
   - [`log` - registration](#log---registration)
@@ -38,6 +65,8 @@ You might ask "well why not use git?". You certainly could use git to track thes
   - [log - clean](#log---clean)
 - [How to actually use this data](#how-to-actually-use-this-data)
 - [`log_server` - Web interface](#log_server---web-interface)
+  - [Pandoc and Markdown](#pandoc-and-markdown)
+- [Modifying the code yourself](#modifying-the-code-yourself)
 
 ## Quick Help
 ### `Commands`:
@@ -92,23 +121,19 @@ Valid types are:
 And yes I know that JSON doesn't have boolean types, for `"bool"` I actually mean `1/0` for `true/false`, respectively.
 
 ## How it works 
-The current system is broken into 2 parts - the `log_client` and `log_server`. `log_client` is a utility for users or automated programs to upload results to the `log_server`. The `log_server` is a webserver+database combo that receives data from the `log_client` and inserts it into a local MongoDB database. The communication between the client and server is encrypted via TLS to maintain confidentiality.
+The current system is broken into 2 parts - the `log` and `log_server`. `log` is a utility for users or automated programs to upload results to the `log_server`. The `log_server` is a webserver+database combo that receives data from the `log` and inserts it into a local MongoDB database. The communication between the client and server is encrypted via TLS to maintain confidentiality.
 
 # Setup - `log_server`
 
 ## Setup - MongoDB
 Rust_Logger depends on a MongoDB database for it's backend. Currently this database must be installed and configured manually by you, the user. However, this does not require much work. We only need to set up a Mongo server with basic authentication settings. 
 
-The MongoDB documentation is very good and can be found at the following links:
+I have compiled some notes on what is required to set up the database properly in `log_server/Extra_Setup_Help/MongoDb setup tricks.md`. Please check that out if you are stuck. Note that TLS setup in in the database settings is not required by Rust_Logger. That is only necessary if you intend on querying the MongoDB directly and want your connection to be secure.
 
-- Installation on Ubuntu: https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/
-- Authentication setup: https://www.mongodb.com/docs/manual/tutorial/configure-scram-client-authentication/
-- (optional) Security checklist: https://www.mongodb.com/docs/manual/administration/security-checklist/
-
-The above links should be enough to setup a Mongo database for our purposes. Be sure to choose a good password for your admin user. This is needed later on.
+And be sure to choose a good password for your admin user. This is needed later on.
 
 ## Setup - log_server: Prerequisite TLS
-I will now describe the setup process of the `log_server`. `log_server` communicates with a `log_client` through http communication secured with TLS. This requires that the system running `log_server` contain an unexpired, valid TLS certificate. 
+I will now describe the setup process of the `log_server`. `log_server` communicates with a `log` through http communication secured with TLS. This requires that the system running `log_server` contain an unexpired, valid TLS certificate. 
 
 Now if you are running `log_server` on a local network you will need to create a self-signed certificate and manually add the certificate to all client machines' trusted lists. I describe how to do this in `log_server/Creating self-signed certificates.txt` but you can also find plenty of manuals on how to do this online. 
 
@@ -130,6 +155,7 @@ cert_path : /home/tedwing/.log_server/myserver.crt
 key_path : /home/tedwing/.log_server/myserver.key
 data_path : /home/tedwing/.log_server/data/
 database : LAMMPS
+css : https://a-template-url
 ```
 
 Not much going on there. The options are pretty self-explanatory but I will explain them here:
@@ -139,21 +165,22 @@ Not much going on there. The options are pretty self-explanatory but I will expl
 - `key_path` - Location of TLS private key. Point to wherever your self-signed key file is located - or if have a certificate from Lets Encrypt yours will be at `/etc/letsencrypt/live/<your domain name>/privkey.pem`.
 - `data_path` - Location where uploaded files will be stored on disk. The default location should be fine.
 - `database` - Name of the MongoDB database that the server will create for you. This also can be anything you want. 
+- `css` - (Optional) The URL of a css stylesheet. This will be used to render certain web pages in the [Web interface](#log_server---web-interface).
 
 After this is properly set up we can start the service with systemctl:
 
 ![Alt text](imgs/service_startup.png)
 
-# Setup - log_client
+# Setup - log
 
-## Setup - log_client
-With a server now running we can now move to setting up a `log_client`. This is considerably simpler since there are no prequisites or services running. Again here there is also a `install.sh` script- but this time in the `log_client/` folder:
+## Setup - log
+With a server now running we can now move to setting up a `log`. This is considerably simpler since there are no prequisites or services running. Again here there is also a `install.sh` script- but this time in the `log/` folder:
 
 ![Alt text](imgs/client_install.png)
 
 Considerably less flashy than the server install. 
 
-## Setup - log_client config
+## Setup - log config
 This also installs a config to a hidden folder in the home folder at `~/.log/config`:
 
 ```
@@ -166,14 +193,14 @@ Even more boring than the server config!
 
 - `Username` - The username that will register this machine with the server. Set it to whatever you want (Might change this in the future to just use the system name so that you don't have to create a username for each machine manually)
 - `Server` - This is the site + port of the machine  where the `log_server` is running. So if the server was running at example.com on port 1241 I would put `example.com:1241` here.
-- `tracked_files` - This denotes a list of filetypes that `log_client` should monitor for changes. This can be a file extension, file prefix, or just some common substring found in your files. Different types are separated by commas so to track multiple files this would look like "`tracked_files : .log, .txt, .csv`"
+- `tracked_files` - This denotes a list of filetypes that `log` should monitor for changes. This can be a file extension, file prefix, or just some common substring found in your files. Different types are separated by commas so to track multiple files this would look like "`tracked_files : .log, .txt, .csv`"
 
 This covers the basic setup required for Rust_Logger to operate. We can now do *fun things*.
 
 # `log`
 
 ## `log` - the command-line utility
-When you run the `log_client` install script, you are actually installing a tool called `log` which can run from the linux terminal. `log` is what you use for all interactions with Rust_Logger. I will now explain each of its core functions.
+When you run the `log` install script, you are actually installing a tool called `log` which can run from the linux terminal. `log` is what you use for all interactions with Rust_Logger. I will now explain each of its core functions.
 
 ## `log` - registration
 >*The following is not essential for the actual usage of Rust_Logger but may be helpful for your overall understanding of the program. But feel free to skip if you are impatient.*
@@ -192,7 +219,7 @@ If everything runs properly this whole process is nearly instantaneous and unnot
 
 If for whatever reason your account is dropped from the database, you will need to re-register. To do this you will first need to delete the `.Rust_Logger_Credentials` file. Then the next run of `log` will perform the registration process again.
 
-Connections to different servers are also supported. Whenever you use a new `Server` in the `log_client` config, the registration will run again as explained above.
+Connections to different servers are also supported. Whenever you use a new `Server` in the `log` config, the registration will run again as explained above.
 
 ## `log` - upload
 >*You absolutely MUST read this to be able to use the Rust_Logger in any meaningful way.*
@@ -235,7 +262,7 @@ Let's look at what the previous command uploaded to Mongo:
 
 ![Alt text](imgs/mongodb_upload.png)
 
-From `upload_name` it looks like we have uploaded a compressed tar.gz version of the directory- which is exactly what has occurred. The `log_client` simply compresses the entire directory and sends it to `log_server`. 
+From `upload_name` it looks like we have uploaded a compressed tar.gz version of the directory- which is exactly what has occurred. The `log` simply compresses the entire directory and sends it to `log_server`. 
 
 Below that we also see `id` and `parent_id`. These fields are used to track changes between simulations and track the progress of these changes. `id` is simply a combined hash of all files in the directory, with the directory name prepended (that's also the MongoDB collection name). `parent_id` is the id of the previous version of this simulation. Since this was the first upload to this collection, the `parent_id` is `*` which lets us know that this is the root entry.
 
@@ -249,7 +276,7 @@ Let's see what happens when add a new arbitrary file:
 
 ![Alt text](imgs/arb_file.png)
 
-But this will also fail. Why is this? Remember that `tracked_files` config setting? You can check it here [Setup - log_client config](#setup---log_client-config). By default Rust_logger will only monitor `in.` files which are the common prefix for LAMMPS input files. Only changes to these files will cause `log` to take notice. It's kind of like an inverse of the `.gitignore` file. `log` ignores everything __NOT__ in the `tracked_files` list.
+But this will also fail. Why is this? Remember that `tracked_files` config setting? You can check it here [Setup - log config](#setup---log-config). By default Rust_logger will only monitor `in.` files which are the common prefix for LAMMPS input files. Only changes to these files will cause `log` to take notice. It's kind of like an inverse of the `.gitignore` file. `log` ignores everything __NOT__ in the `tracked_files` list.
 
 Let's change the input file by changing the timestep from 0.003 to 0.001 and then reupload:
 
@@ -426,12 +453,49 @@ I've talked a lot about how to upload your data to a database using the Rust_Log
 I would recommend using [Python](https://www.mongodb.com/languages/python) to query and use your data, but you can use whatever language or tool you want.
 
 # `log_server` - Web interface
-There is simple a html-based interface which let's you download files from the server. Simply navigate to the url of the server (`Server` in the client config). You will be greeted by a simple web page that prompts your for the database admin password. You can then navigate between your collections and click to download anything that you have uploaded
+>*The  Web interface is an entirely option application built on top the `log_server`. You can use Rust_logger without ever accessing the web page.*
+
+There is simple a html-based interface which let's you download files from the server. Simply navigate to the url of the server (`Server` in the client config). You will be greeted by a simple web page that prompts you for the database admin password. You can then navigate between your collections and click to download anything that you have uploaded
 
 ![Alt text](imgs/web_interface_example.png)
 
 The site does use cookies to make sure you are properly authenticated and they currently expire after 10 minutes. After that you will have to log in again.
 
-You can also view the contents of your uploads. If [pandoc](https://pandoc.org/) is installed onyour server, the `log_server` will attempt to convert any markdown (.md) files to html. The server also loads the [MathJax](https://www.mathjax.org/) library to render any math embedded in the document. This was done mostly for me to view my own notes through the server. 
+The appearance of the site may be enhanced by providing a css stylesheet url in the `log_server` config's `css` option.
 
-There are __many__ possible improvements to the web interface that can be made (like actually handling files with spaces in the name, or files within subfolders). But that requires time.
+## Pandoc and Markdown
+
+You can also view the contents of your uploads. If [pandoc](https://pandoc.org/) is installed on your server, the `log_server` will attempt to convert any markdown (.md) files to html. The server will attempt to use a template called `"pandoc_template.html5"` insde your pandoc templates folder. You will need to create this file for yourself if you want to render markdown files a certain way.
+
+The server also loads the [MathJax](https://www.mathjax.org/) library to render any math embedded in the document. A valid internet connection is required for this to work since it retrieves the js file from the jsdelivr cdn. This was done mostly for me to view my own notes through the server.  
+
+# Modifying the code yourself
+Building the code simply requires a modern Rust installation as far as I know. To effectively test the server code locally you will need to create a self-signed TLS certificate. I give instructions on this in `log_server/Extra_Setup_Help/Creating self-signed certificates.md`. But there are plenty of other help-articles on this.
+
+The `root_suid.sh` scripts should be used to build the code. The scripts simply run `cargo build` and then convert the executables into suid binaries. Just running `cargo build` will not let you run any of the code since both perform operations requiring root privileges.
+
+Once the server is running locally, the `Server` option in your client config should be something like `localhost:<server_port>`. A more concrete example of local configs for development would look like this:
+
+log_server config
+```
+server_port : 1241
+cert_path : /home/tedwing/.log_server/myserver.crt
+key_path : /home/tedwing/.log_server/myserver.key
+data_path : /home/tedwing/.log_server/data/
+database : LAMMPS
+css : 
+```
+
+log config
+```
+Username : tayg
+Server : localhost:1241
+tracked_files : in., .md, .bib, .json, .ipynb, .pdf, .odt
+```
+
+Release builds can be made by running the `make.sh` script followed by the executable name:
+```bash
+./make.sh log
+./make.sh log_server
+```
+This will create new builds in the `log/build/` or `log_server/build/` directories.

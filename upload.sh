@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# This script is for main developers only. 
+# It uploads new builds to the hosting server. 
+# It will fail unless you have the a valid ssh key or the server password.
+
 upload_location=ted@taylorgrubbs.online:/var/www/html/downloads/
 
 # build log_client
