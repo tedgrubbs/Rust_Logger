@@ -384,14 +384,16 @@ fn build_html(page: Webpage, list: Option<Vec<String>>, pagename: Option<&str>) 
   let mut html = buf.html().attr("lang='en'");
   let mut head = html.head();
   writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
-
+  head.link().attr("rel='stylesheet' href='https://taylorgrubbs.online/pandoc_theme.css'");
+  
   if page == Webpage::LoginRedirect {
     head.meta().attr("http-equiv='refresh' content='0; URL=/query'");
     return Ok(buf)
   }
 
-  let mut body = html.body().attr("style='background-color:#808080;'");
-
+  let mut body_temp = html.body();
+  let mut body = body_temp.main();
+  
   match pagename {
     Some(name) => writeln!(body.h1(), "{}", name).unwrap(),
     None => writeln!(body.h1(), "Rust_Logger").unwrap()
@@ -683,7 +685,10 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
       let mut html = buf.html().attr("lang='en'");
       let mut head = html.head();
       writeln!(head.title(), "LAMMPS SERVER").unwrap(); 
-      let mut body = html.body().attr("style='background-color:#808080;'");
+      head.link().attr("rel='stylesheet' href='https://taylorgrubbs.online/pandoc_theme.css'");
+  
+      let mut body_temp = html.body();
+      let mut body = body_temp.main();
       writeln!(body.h1(), "{}", uri_path.last().unwrap()).unwrap();
        
       let mut htmllist = body.ul();
