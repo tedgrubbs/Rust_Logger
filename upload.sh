@@ -28,7 +28,7 @@ sed "s/<SERVER_BUILD_INFO>/${server_build_info//[\/]/\_}/" template.html > index
 sed -i "s/<LOG_BUILD_INFO>/${log_build_info//[\/]/\_}/" index.html 
 
 # then just need to upload these to the /download directory of the site
-scp log_server/build/log_server log_server/log_server_installer.sh log/build/log log/log_installer.sh README.pdf index.html $upload_location
+scp log_server/build/log_server log_server/log_server_installer.sh log/build/log log/log_installer.sh README.pdf LICENSE index.html $upload_location
 
 # cleaning up 
 rm index.html README.pdf
