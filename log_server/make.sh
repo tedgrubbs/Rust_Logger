@@ -15,7 +15,7 @@ if [ $is_same == "1" ]; then
 else
   tm=`date`
   hash=`sha256sum $OUTPUT_DIR/$EXECUTABLE`
-  echo -e "Build time: $tm\nsha256: $hash" > $OUTPUT_DIR/build.txt
+  echo -e "<p>Build time: $tm<p>sha256: $hash" > $OUTPUT_DIR/build.txt
   echo -e "\nBuild complete\n"
   cat $OUTPUT_DIR/build.txt
 fi
