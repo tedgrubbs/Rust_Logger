@@ -453,7 +453,7 @@ I've talked a lot about how to upload your data to a database using the Rust_Log
 I would recommend using [Python](https://www.mongodb.com/languages/python) to query and use your data, but you can use whatever language or tool you want.
 
 # `log_server` - Web interface
->*The  Web interface is an entirely option application built on top the `log_server`. You can use Rust_logger without ever accessing the web page.*
+>*The  Web interface is an entirely optional application built on top the `log_server`. You can use Rust_logger without ever accessing the web page.*
 
 There is simple a html-based interface which let's you download files from the server. Simply navigate to the url of the server (`Server` in the client config). You will be greeted by a simple web page that prompts you for the database admin password. You can then navigate between your collections and click to download anything that you have uploaded
 
@@ -467,7 +467,7 @@ The appearance of the site may be enhanced by providing a css stylesheet url in 
 
 You can also view the contents of your uploads. If [pandoc](https://pandoc.org/) is installed on your server, the `log_server` will attempt to convert any markdown (.md) files to html. The server will attempt to use a template called `"pandoc_template.html5"` insde your pandoc templates folder. You will need to create this file for yourself if you want to render markdown files a certain way.
 
-The server also loads the [MathJax](https://www.mathjax.org/) library to render any math embedded in the document. A valid internet connection is required for this to work since it retrieves the js file from the jsdelivr cdn. This was done mostly for me to view my own notes through the server.  
+The server also loads the [MathJax](https://www.mathjax.org/) library to render any math embedded in the document. A valid internet connection on the client is required for this to work since it retrieves the js file from the jsdelivr cdn. This was done mostly for me to view my own notes through the server.  
 
 # Modifying the code yourself
 Building the code simply requires a modern Rust installation as far as I know. To effectively test the server code locally you will need to create a self-signed TLS certificate. I give instructions on this in `log_server/Extra_Setup_Help/Creating self-signed certificates.md`. But there are plenty of other help-articles on this.
