@@ -618,7 +618,7 @@ async fn query(response: &mut hyper::Response<Body>, conn: &mut Connection, req:
           pd.set_output_format(pandoc::OutputFormat::Html, pd_ext);
           pd.set_output(pandoc::OutputKind::Pipe);
           pd.add_option(pandoc::PandocOption::MathJax(Some("https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js".to_string())));
-          pd.add_option(pandoc::PandocOption::Template(PathBuf::from("default.html5")));
+          pd.add_option(pandoc::PandocOption::Template(PathBuf::from("pandoc_template.html5")));
 
           let pd_out = match pd.execute().unwrap() {
             pandoc::PandocOutput::ToBuffer(s) => s,
