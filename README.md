@@ -8,6 +8,8 @@ My past experiences with computational experiments - in AI, physics, engineering
 
 You might ask "well why not use git?". You certainly could use git to track these types of changes but git is more meant for more significant code-base changes that are more or less permanent. In computational science you might want to only change 1 or 2 variables and see how that changes the result. This can quickly generate thousands of git commits that would be impossible to keep track of or analyze using vanilla git or github. As computational scientists we need to easily visualize the relationships between potentially thousands or millions of experimental inputs and outputs. This is what has motivated the current project.
 
+But this is not limited to simulation projects, it can also be used to log anything. For example, I am currently using to keep track of various notes that I write.
+
 ## Quick Install
 Downloads for the relevant executables, README, and installation scripts can be found on my personal website at:
 
