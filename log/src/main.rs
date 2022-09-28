@@ -334,6 +334,11 @@ impl User {
       }
     }
 
+    // will just upload current working directory if no other directory given
+    if input_file_path.is_empty() {
+      input_file_path.insert(0, '.');
+    }
+
     if input_file_path.len() == 0 {
       panic!("Improperly formatted command string. No input file found")
     }
@@ -672,15 +677,18 @@ fn main() {
 
   let mut args: Vec<String> = env::args().collect();
 
-  if args.len() == 1 {
-    println!("\nTry entering a command like:");
-    println!("log mpirun -np 4 lmp -in in.crack\n");
-    println!("Or to just compress and send a directory:\nlog -c -in <file or directory>\n");
-    println!("To clean up dead files on the server:\nlog clean");
-    return;
-  }
+  // if args.len() == 1 {
+  //   println!("\nTry entering a command like:");
+  //   println!("log mpirun -np 4 lmp -in in.crack\n");
+  //   println!("Or to just compress and send a directory:\nlog -c -in <file or directory>\n");
+  //   println!("To clean up dead files on the server:\nlog clean");
+  //   return;
+  // }
 
-  args.remove(0);
+  // if additional args provided, remove command from args list
+  if args.len() > 1 {
+    args.remove(0);
+  }
 
   if args[0] == "clean" {
     args.remove(0);
@@ -688,11 +696,9 @@ fn main() {
     return;
   }
 
-  // Can just compress directory and send it if simulation has already ran
-  let mut compress_only = false;
-  if args[0] == "-c" {
-    compress_only = true;
-  }
+  
+  // removing execution option
+  let compress_only = true;
 
 
   let mut filename = String::new();

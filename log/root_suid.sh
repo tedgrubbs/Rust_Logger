@@ -1,11 +1,12 @@
 #!/bin/bash
 cargo build
 
-EXEC_LOC=target/debug/log
+EXEC_LOC=/home/tedwing/Rust_Testing/Rust_Logger/log/target/debug/log
 
 sudo chown root $EXEC_LOC
 sudo chmod u+s $EXEC_LOC
 
 # ./log
-$EXEC_LOC -c --coll crack_test $HOME/Desktop/lammps/examples/crack
+cd $HOME/Desktop/lammps/examples/crack
+$EXEC_LOC  --coll newtest
 # ./log mpirun -np 4 lmp -in $HOME/Desktop/lammps/examples/crack/in.crack
